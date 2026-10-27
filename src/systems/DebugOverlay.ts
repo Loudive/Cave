@@ -5,6 +5,7 @@ import { Creature } from '../entities/Creature'
  * DebugOverlay — шаг 3: оверлей состояния существа.
  * Показывает состояние, скорости, coyote/buffer таймеры и FPS.
  * Переключение — F3. Помогает «чувствовать» параметры movement.json.
+ * С шага 4 — принимает опциональные строки о пещере (seed, связность…).
  */
 export class DebugOverlay {
   private readonly text: Phaser.GameObjects.Text
@@ -13,6 +14,7 @@ export class DebugOverlay {
   constructor(
     scene: Phaser.Scene,
     private creature: Creature,
+    private extra?: () => string[],
   ) {
     this.text = scene.add.text(12, 12, '', {
       fontFamily: 'monospace',
@@ -50,13 +52,15 @@ export class DebugOverlay {
     }
 
     const wall = this.creature.wallSide < 0 ? '<-' : this.creature.wallSide > 0 ? '->' : '.'
-    this.text.setText([
+    const lines = [
       `state:  ${state}`,
       `speed:  vx=${Math.round(body.velocity.x).toString().padStart(4)}  vy=${Math.round(body.velocity.y).toString().padStart(4)}`,
       `floor:  ${this.creature.onFloor ? 'yes' : 'no '}   wall: ${wall}`,
       `coyote: ${Math.round(this.creature.coyoteLeft(now)).toString().padStart(3)}ms  buffer: ${Math.round(this.creature.jumpBufferLeft(now)).toString().padStart(3)}ms`,
       `fps:    ${fps}`,
-    ])
+      ...(this.extra ? this.extra() : []),
+    ]
+    this.text.setText(lines)
     this.text.setColor(stateColor[state] ?? '#E8E6E3')
   }
 }

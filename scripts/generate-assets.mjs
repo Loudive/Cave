@@ -266,4 +266,74 @@ makeGlow('glow-acid.png', PAL.acid)
   c.save('spore.png')
 }
 
+// ── Шаг 4: тайлы для процедурного тайлмапа ─────────────────────────────────
+// Три слоя: камень (ядро стен), земля (край стены у воздуха), декор
+// (мох/кристалл/кость — прозрачный фон, лежат на полу пещеры).
+
+/** Тайл камня 16×16 — ядро стен, почти чёрный с редким зерном. */
+{
+  const c = new Canvas(16, 16)
+  c.fill([0x14, 0x14, 0x1c])
+  const rnd = mulberry32(31)
+  for (let i = 0; i < 14; i++) {
+    c.rect(Math.floor(rnd() * 16), Math.floor(rnd() * 16),
+      Math.floor(rnd() * 16), Math.floor(rnd() * 16),
+      PAL.rockDark, Math.round((0.35 + rnd() * 0.4) * 255))
+  }
+  c.save('tile-stone.png')
+}
+
+/** Тайл земли 16×16 — край стены, обращённый к воздуху: теплее и светлее. */
+{
+  const c = new Canvas(16, 16)
+  c.fill([0x3a, 0x32, 0x2c])
+  const rnd = mulberry32(32)
+  for (let i = 0; i < 20; i++) {
+    c.rect(Math.floor(rnd() * 16), Math.floor(rnd() * 16),
+      Math.floor(rnd() * 16), Math.floor(rnd() * 16),
+      rnd() > 0.5 ? PAL.rockMid : [0x46, 0x3c, 0x33],
+      Math.round((0.25 + rnd() * 0.4) * 255))
+  }
+  c.save('tile-dirt.png')
+}
+
+/** Декор «мох» 16×16: биолюм-крап у пола (прозрачный фон). */
+{
+  const c = new Canvas(16, 16)
+  const rnd = mulberry32(33)
+  for (let i = 0; i < 26; i++) {
+    const x = 1 + Math.floor(rnd() * 14)
+    const y = 8 + Math.floor(rnd() * 7)
+    const col = rnd() > 0.4 ? PAL.cyan : PAL.acid
+    c.rect(x, y, x + 1, y + 1, col, Math.round((0.5 + rnd() * 0.5) * 255))
+  }
+  c.save('decor-moss.png')
+}
+
+/** Декор «кристалл» 16×16: осколок спор-кварца, растёт из пола. */
+{
+  const c = new Canvas(16, 16)
+  const core = [0xd6, 0xb0, 0xff]
+  for (let y = 3; y <= 14; y++) {
+    const t = (y - 3) / 11
+    const half = Math.round(1 + t * 3)
+    c.rect(8 - half, y, 8 + half, y, PAL.spore, 235)
+  }
+  c.rect(7, 5, 9, 13, core, 200)
+  c.px(8, 3, core, 255)
+  c.px(8, 4, core, 230)
+  c.save('decor-crystal.png')
+}
+
+/** Декор «кость» 16×16: чья-то ребровая кость на полу пещеры. */
+{
+  const c = new Canvas(16, 16)
+  const bone = [0xd8, 0xd2, 0xc4]
+  c.roundRect(3, 11, 12, 13, 2, bone, 235)
+  c.roundRect(2, 10, 4, 13, 1, bone, 245)
+  c.roundRect(11, 10, 13, 13, 1, bone, 245)
+  c.rect(5, 12, 10, 12, [0x9a, 0x94, 0x86], 160)
+  c.save('decor-bone.png')
+}
+
 console.log('Готово: assets/ обновлён (детерминированно, seed=20261027).')

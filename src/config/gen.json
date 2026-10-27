@@ -1,0 +1,127 @@
+{
+  "_doc": {
+    "readme": "Все параметры генерации пещер (шаг 4). Код не содержит магических констант — правь только этот файл. Сетка в тайлах 16×16 px, глубина в метрах.",
+    "map": "map: размер карты. cols×rows тайлов по tile px; metersPerPixel — сколько «метров» глубины в одном пикселе мира (карта 163×100×16 = 2608×1600 px = 800 м).",
+    "ca": "Cellular automata: fillProb — начальная доля стен, iterations — проходов сглаживания, birthLimit — соседей-стен, при котором клетка становится стеной, deathLimit — при котором воздухом.",
+    "drunkard": "Drunkard's walk: tunnelRadius — радиус высекаемого туннеля (тайла), driftToExit — вероятность шага в сторону выхода (остальное — случайный шаг, даёт извилистость), extraWalks×extraSteps — доп. блуждания с радиусом extraRadius для петель между кавернами.",
+    "chambers": "Стартовая и выходная камеры: ширина/высота в тайлах. Вход — сверху слева, выход — снизу справа (стороны рандомизируются seed'ом).",
+    "connectivity": "targetReachable — минимальная доля воздуха, достижимого от входа (остальное запечатывается камнем); repairMaxTries — сколько раз перегенерировать с offset seed'а, пока критерий не выполнен.",
+    "biomeJitter": "Границы биомов дрожат через шум: noiseScale — масштаб шума по столбцу, amplitudeTiles — амплитуда дрожания в тайлах.",
+    "biomeBands": "Полосы биомов по глубине забега (GDD §6). toMeters — верхняя граница полосы в метрах ГЛОБАЛЬНОЙ глубины; glowColor/glow — цвет биолюма и текстура свечения; mushroomDensity — шанс гриба на клетку пола; moss/crystal/bone — шансы декора; nests — гнёзд мобов на полосу в одной карте.",
+    "mushroom": "minSpacingTiles — минимальная дистанция между грибами; maxTotal — потолок грибов на карту; skipNearEntranceTiles — радиус чистоты вокруг входа.",
+    "nest": "minSpacingTiles — дистанция между гнёздами; minDistFromEntranceTiles — гнёзда не рядом со стартом.",
+    "seed": "Алфавит seed'а — без похожих символов (0/O, 1/I)."
+  },
+  "map": {
+    "cols": 163,
+    "rows": 100,
+    "tile": 16,
+    "metersPerPixel": 0.5
+  },
+  "ca": {
+    "fillProb": 0.47,
+    "iterations": 5,
+    "birthLimit": 5,
+    "deathLimit": 3
+  },
+  "drunkard": {
+    "tunnelRadius": 2,
+    "driftToExit": 0.45,
+    "extraWalks": 10,
+    "extraSteps": 110,
+    "extraRadius": 1
+  },
+  "chambers": {
+    "entranceW": 9,
+    "entranceH": 6,
+    "exitW": 11,
+    "exitH": 8
+  },
+  "connectivity": {
+    "targetReachable": 0.93,
+    "repairMaxTries": 30
+  },
+  "biomeJitter": {
+    "noiseScale": 0.075,
+    "amplitudeTiles": 6
+  },
+  "biomeBands": [
+    {
+      "name": "Грибные поляны",
+      "toMeters": 200,
+      "glowColor": "#58e6c8",
+      "glow": "glow-cyan",
+      "mushroomDensity": 0.05,
+      "moss": 0.09,
+      "crystal": 0.012,
+      "bone": 0.0,
+      "nests": 3
+    },
+    {
+      "name": "Кровавые жилы",
+      "toMeters": 600,
+      "glowColor": "#e23a4e",
+      "glow": "glow-red",
+      "mushroomDensity": 0.032,
+      "moss": 0.015,
+      "crystal": 0.02,
+      "bone": 0.05,
+      "nests": 4
+    },
+    {
+      "name": "Кислотные гроты",
+      "toMeters": 1200,
+      "glowColor": "#a8e34f",
+      "glow": "glow-acid",
+      "mushroomDensity": 0.035,
+      "moss": 0.03,
+      "crystal": 0.05,
+      "bone": 0.012,
+      "nests": 5
+    },
+    {
+      "name": "Лавовые глубины",
+      "toMeters": 2000,
+      "glowColor": "#e23a4e",
+      "glow": "glow-red",
+      "mushroomDensity": 0.02,
+      "moss": 0.01,
+      "crystal": 0.04,
+      "bone": 0.02,
+      "nests": 5
+    },
+    {
+      "name": "Затопленные туннели",
+      "toMeters": 3000,
+      "glowColor": "#58e6c8",
+      "glow": "glow-cyan",
+      "mushroomDensity": 0.025,
+      "moss": 0.04,
+      "crystal": 0.02,
+      "bone": 0.01,
+      "nests": 5
+    },
+    {
+      "name": "Забытые храмы",
+      "toMeters": 999999,
+      "glowColor": "#b36bff",
+      "glow": "glow-purple",
+      "mushroomDensity": 0.03,
+      "moss": 0.02,
+      "crystal": 0.07,
+      "bone": 0.04,
+      "nests": 6
+    }
+  ],
+  "mushroom": {
+    "minSpacingTiles": 3,
+    "maxTotal": 150,
+    "skipNearEntranceTiles": 4
+  },
+  "nest": {
+    "minSpacingTiles": 16,
+    "minDistFromEntranceTiles": 20
+  },
+  "seedAlphabet": "23456789ABCDEFGHJKMNPQRSTUVWXYZ",
+  "seedLength": 6
+}

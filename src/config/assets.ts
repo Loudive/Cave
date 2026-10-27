@@ -22,9 +22,14 @@ export const ASSETS: AssetEntry[] = [
   { key: 'rock', file: 'rock.png' },
   { key: 'mushroom', file: 'mushroom.png' },
   { key: 'spore', file: 'spore.png' },
-  // Тайлы (пригодятся шагу 4 — генератору пещер).
+  // Тайлы (шаг 4 — тайлмап процедурной пещеры).
   { key: 'tile-wall', file: 'tile-wall.png' },
   { key: 'tile-floor', file: 'tile-floor.png' },
+  { key: 'tile-stone', file: 'tile-stone.png' },
+  { key: 'tile-dirt', file: 'tile-dirt.png' },
+  { key: 'decor-moss', file: 'decor-moss.png' },
+  { key: 'decor-crystal', file: 'decor-crystal.png' },
+  { key: 'decor-bone', file: 'decor-bone.png' },
   // Пост-эффекты.
   { key: 'vignette', file: 'vignette.png' },
 ]
