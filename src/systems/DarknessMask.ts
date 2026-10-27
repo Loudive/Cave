@@ -60,6 +60,12 @@ export class DarknessMask {
     return src
   }
 
+  /** Убрать источник (шаг 7: огненные лужи и споры живут недолго). */
+  remove(src: LightSource): void {
+    const i = this.lights.indexOf(src)
+    if (i >= 0) this.lights.splice(i, 1)
+  }
+
   /** Пометить источник как свет существа — на него дышит и мошь реагирует. */
   setPlayer(src: LightSource): void {
     this.playerLight = src

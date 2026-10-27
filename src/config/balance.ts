@@ -90,6 +90,12 @@ export interface SpawnBalance {
   maxAlive: number
 }
 
+/** Споровая пыль жнеца (шаг 7): замедление существа. */
+export interface SporeBalance {
+  slowFactor: number
+  slowMs: number
+}
+
 export interface DeathBalance {
   hitstopMs: number
   fadeMs: number
@@ -106,6 +112,7 @@ export interface BalanceConfig {
   blood: BloodBalance
   mutations: MutationsBalance
   spawn: SpawnBalance
+  spore: SporeBalance
   death: DeathBalance
 }
 

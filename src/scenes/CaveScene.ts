@@ -5,7 +5,10 @@ import { LIGHT } from '../config/light'
 import { BALANCE } from '../config/balance'
 import { ENEMIES } from '../config/enemies'
 import { Creature, CreatureKeys } from '../entities/Creature'
-import { Enemy, type EnemyContext } from '../entities/Enemy'
+import { Enemy, type EnemyContext, type KillerKind } from '../entities/Enemy'
+import { Spores } from '../systems/Spores'
+import { FireTrail } from '../systems/FireTrail'
+import { Ecosystem, type NestRecord } from '../systems/Ecosystem'
 import { DebugOverlay } from '../systems/DebugOverlay'
 import { MiniMap } from '../systems/MiniMap'
 import { DarknessMask } from '../systems/DarknessMask'
@@ -21,16 +24,19 @@ import { QUALITY } from '../systems/quality'
 import { buildCaveTilemap } from '../systems/TileBuilder'
 import { generateCave, biomeIndexAtMeters, type CaveData } from '../gen/cave'
 import { Rng, hashSeed } from '../gen/rng'
+import { MUTATIONS } from '../config/mutations'
 
 /**
- * CaveScene — шаг 6: боёвка, голод и поедание поверх света шага 5.
- * Ядро фантазии (гайд): укус с телеграфом, кровь в три слоя, хитстоп
- * и тряска, туша как еда (сытость + рост + шанс мутации 25%), голод
- * тикает каждые 2 с и при нуле заставляет HP таять. Цикл «напал —
- * съел — вырос — захотел ещё». Добыча живёт у гнёзд шага 4: слизень
- * (округлый, кусается в углу) и нетопырь (синус-полёт). Вне света
- * мобы — силуэты-двойники над маской. Тумблер качества Q, тач-кнопка
- * укуса на мобилках. Числа — в balance.json / enemies.json / mutations.json.
+ * CaveScene — шаг 7: мобы и живая экосистема поверх боёвки шага 6.
+ * Шесть видов с полным FSM (патруль → тревога → погоня → замах →
+ * атака → отход; бегство при HP<25%, панцирь — свёртка): слизень
+ * (prey, контратака в углу), нетопырь (синус-полёт, нырок на раненых),
+ * споровый жнец (веер спор, китер), кровосос (пиявка HP), бронепанцирь
+ * (только кислота берёт), лавовый ползун (огненный след). Экосистема:
+ * мобы охотятся друг на друга и едят падаль, когда игрока нет в
+ * peaceRadius; гнёзда возрождают население; шум пещеры — кольца над
+ * тьмой («стоишь и слушаешь»). Кислотный укус — из мутации
+ * «Кислотные железы». Все числа — в enemies.json / balance.json.
  *
  * Управление: A/D — бег, SPACE — прыжок, W — планирование,
  * J / ЛКМ / кнопка — укус (рядом туша — съесть), R/N/M — пещера/seed/карта,
@@ -71,6 +77,9 @@ export class CaveScene extends Phaser.Scene {
   private combat!: Combat
   private mutations!: Mutations
   private enemies: Enemy[] = []
+  private spores!: Spores
+  private fire!: FireTrail
+  private eco!: Ecosystem
 
   private seedBase = ''
   private depth = 1
@@ -79,6 +88,8 @@ export class CaveScene extends Phaser.Scene {
   private maxMeters = 0
   /** Модификаторы мутаций, живущие в сцене (thorns/stealth/stun). */
   private sceneMods = { thorns: 0, detectMult: 1, stunMs: 0 }
+  /** Слои тайлмапа (для коллизий возрождённых мобов). */
+  private tileLayers: { stone: Phaser.Tilemaps.TilemapLayer; ground: Phaser.Tilemaps.TilemapLayer } | null = null
 
   constructor() {
     super('Cave')
@@ -119,6 +130,7 @@ export class CaveScene extends Phaser.Scene {
 
     // ── Тайлмап: камень + земля (коллизии), декор ──────────────────────────
     const layers = buildCaveTilemap(this, this.cave)
+    this.tileLayers = layers
 
     // ── Атмосфера (шаг 5) ───────────────────────────────────────────────────
     this.buildParallax()
@@ -190,6 +202,23 @@ export class CaveScene extends Phaser.Scene {
       this.blood, this.hitStop, this.eating,
     )
 
+    // Шаг 7: споры жнеца, огненный след ползуна, режиссёр экосистемы.
+    this.spores = new Spores(this, this.cave, this.mask, this.blood, {
+      onHitPlayer: (damage) => this.combat.hurtPlayerSpore(damage),
+      onHitMob: (victim, applied) => {
+        this.blood.burst(victim.x, victim.y, {
+          count: 8, dirDeg: 90, spreadDeg: 360, texture: 'spore', sticky: false,
+        })
+        this.blood.number(victim.x, victim.y - 14, `${applied}`, '#B36BFF')
+      },
+    })
+    this.fire = new FireTrail(this, this.cave, this.mask, {
+      onBurnPlayer: (amount) => this.combat.hurtPlayerFire(amount),
+    })
+    this.eco = new Ecosystem(this, {
+      spawnAtNest: (nest) => this.spawnEnemyAtNest(nest),
+    })
+
     this.hudBars = new Hud(this, this.vitals, this.mutations, () => this.combat.queueTouchBite())
 
     // Рост: существо visibly увеличивается, свет на миг вспыхивает.
@@ -229,7 +258,7 @@ export class CaveScene extends Phaser.Scene {
     this.motes = new SilhouetteMotes(this, this.cave, this.mask)
 
     // Добыча у гнёзд шага 4 + гарантированная еда у входа.
-    this.spawnEnemies(layers.stone, layers.ground)
+    this.spawnEnemies()
 
     // ── Ввод боя: J / ЛКМ (десктоп), тач-кнопка — через Hud ─────────────────
     kb.on('keydown-J', () => this.combat.queueKeyBite())
@@ -276,7 +305,9 @@ export class CaveScene extends Phaser.Scene {
       `vitals: hp=${Math.ceil(this.vitals.hp)}/${this.vitals.maxHp}  голод=${Math.ceil(this.vitals.hunger)}/${this.vitals.maxHunger}`,
       `рост:   ур.${this.vitals.level} xp=${Math.round(this.vitals.xp)}  мутаций=${this.mutations.ownedCount}`,
       `бой:    ${this.combat.state}  мобов=${this.enemies.length}  туш=${this.eating.list.length}`,
-      `кровь:  декалей=${this.blood.activeDecals}  сгустков=${this.blood.activeClots}  кач=${QUALITY.level}`,
+      `экосистема: ${this.ecoPopulation()}  ${this.eco.stats()}`,
+      `шаг7:   спор=${this.spores.activeCount}  огня=${this.fire.activeCount}  кислота=${this.vitals.biteAcid ? 'да' : 'нет'}  кач=${QUALITY.level}`,
+      `кровь:  декалей=${this.blood.activeDecals}  сгустков=${this.blood.activeClots}`,
     ])
 
     // ── Клавиши сценария ────────────────────────────────────────────────────
@@ -305,7 +336,8 @@ export class CaveScene extends Phaser.Scene {
       this.creature.update(time, delta)
       this.combat.update(time)
 
-      // Контекст добычи: свет хищника = его зрение (мутации маскируют).
+      // Контекст мобов: свет хищника = его зрение (мутации маскируют);
+      // экосистема видит соседей и туши (шаг 7).
       const lightR = this.mask.playerRadius(time)
       const ctx: EnemyContext = {
         playerX: this.creature.x,
@@ -313,19 +345,30 @@ export class CaveScene extends Phaser.Scene {
         playerLightR: lightR,
         detectMult: this.sceneMods.detectMult,
         frozen,
+        playerAlive: this.vitals.alive,
+        playerHpRatio: this.vitals.hpRatio,
+        others: this.enemies,
+        corpses: this.eating.list,
+        eatCorpse: (carcass, portion) => this.eating.mobBite(carcass, portion),
       }
       for (const enemy of this.enemies) {
         enemy.update(time, delta, ctx)
         enemy.updateSilhouette(this.creature.x, this.creature.y, lightR)
       }
-      // Выпавшие из мира мобы исчезают тихо (гнёзда стоят на полу — редкость).
+      // Выпавшие из мира мобы исчезают тихо, но гнездо их возродит (шаг 7).
       for (let i = this.enemies.length - 1; i >= 0; i--) {
-        if (this.enemies[i].dead && !this.enemies[i].active) this.enemies.splice(i, 1)
-        else if (this.enemies[i].y > this.worldH + 200) {
-          this.enemies[i].destroy()
+        const e = this.enemies[i]
+        if (e.dead && !e.active) this.enemies.splice(i, 1)
+        else if (e.y > this.worldH + 200) {
+          if (e.nestIndex >= 0) this.eco.onMobDeath(e.nestIndex)
+          e.destroy()
           this.enemies.splice(i, 1)
         }
       }
+
+      this.spores.update(time, this.creature.x, this.creature.y, this.vitals.alive, this.enemies)
+      this.fire.update(time, this.creature.x, this.creature.y, this.vitals.alive, this.enemies)
+      this.eco.update(time)
 
       this.eating.update(time, this.creature.x, this.creature.y)
       this.vitals.update(delta)
@@ -381,19 +424,31 @@ export class CaveScene extends Phaser.Scene {
     }
   }
 
-  // ── Шаг 6: бой и еда ──────────────────────────────────────────────────────
+  // ── Шаг 6/7: бой, еда и экосистема ────────────────────────────────────────
 
-  /** Моб умер: взрыв крови, сгустки-еда, туша, бросок на мутацию. */
-  private handleKill(enemy: Enemy): void {
-    this.vitals.eatenCount++
+  /**
+   * Моб умер (убийца — игрок, другой моб или среда). Туша и сгустки
+   * появляются всегда — пещера утилизирует своих. Мутации и счётчик
+   * «съедено» — только за игроком: добыча должна чувствовать своё.
+   */
+  private handleEnemyDeath(enemy: Enemy, killer: KillerKind): void {
+    const idx = this.enemies.indexOf(enemy)
+    if (idx >= 0) this.enemies.splice(idx, 1)
+
     const b = BALANCE.blood
-    this.blood.explode(enemy.x, enemy.y, b.particlesPerKill[1])
+    const mult = killer === 'player' ? 1 : 0.7
+    this.blood.explode(enemy.x, enemy.y, Math.round(b.particlesPerKill[1] * mult))
     this.blood.spawnClots(
       enemy.x, enemy.y,
       Phaser.Math.Between(b.clotsPerKill[0], b.clotsPerKill[1]),
     )
     this.eating.spawnCarcass(enemy.speciesId, enemy.x, enemy.y)
-    this.mutations.rollDrop(enemy.x, enemy.y)
+    this.eco.ring(enemy.x, enemy.y, enemy.species.noiseColor, 0.6)
+    this.eco.onMobDeath(enemy.nestIndex)
+    if (killer === 'player') {
+      this.vitals.eatenCount++
+      this.mutations.rollDrop(enemy.x, enemy.y)
+    }
   }
 
   /** Мутация подобрана: сцена вешает хуки на Creature и свой mods. */
@@ -497,59 +552,36 @@ export class CaveScene extends Phaser.Scene {
     void depthPx
   }
 
-  /** Расселение добычи: гнёзда шага 4 просыпаются, у входа — своя мелочь. */
-  private spawnEnemies(
-    stone: Phaser.Tilemaps.TilemapLayer,
-    ground: Phaser.Tilemaps.TilemapLayer,
-  ): void {
+  /**
+   * Расселение экосистемы (шаг 7): гнёзда шага 4 просыпаются со своим
+   * составом по биому (ENEMIES.spawn.byBiome), у входа — своя мелочь.
+   * Состав гнезда — детерминированный rng от seed.
+   */
+  private spawnEnemies(): void {
     const rng = new Rng(hashSeed(this.cave.seed + ':mobs'))
     const tile = this.cave.tile
     const spawnCfg = ENEMIES.spawn
-    const b = BALANCE.spawn
 
-    const pickSpecies = (): string => {
-      const roll = rng.float()
-      let acc = 0
-      for (const w of spawnCfg.speciesWeights) {
-        acc += w.weight
-        if (roll < acc) return w.id
-      }
-      return spawnCfg.biomeFallback[0]
+    const addEnemy = (speciesId: string, wx: number, wy: number, nestIndex = -1): void => {
+      this.addEnemyAt(speciesId, wx, wy, nestIndex)
     }
 
-    const addEnemy = (speciesId: string, wx: number, wy: number): void => {
-      if (this.enemies.length >= b.maxAlive) return
-      const enemy = new Enemy(this, wx, wy, speciesId, {
-        onPlayerBitten: (damage, _x, attacker) => {
-          const applied = this.combat.hurtPlayer(damage)
-          if (applied > 0 && this.sceneMods.thorns > 0 && !attacker.dead) {
-            this.combat.reflectThorns(attacker)
-          }
-        },
-        onDeath: (e) => {
-          const idx = this.enemies.indexOf(e)
-          if (idx >= 0) this.enemies.splice(idx, 1)
-          this.handleKill(e)
-        },
-      })
-      this.physics.add.collider(enemy, [stone, ground])
-      this.enemies.push(enemy)
-    }
-
-    // Гнёзда: perNest добычи каждого гнезда.
-    for (const nest of this.cave.nests) {
-      for (let i = 0; i < spawnCfg.perNest; i++) {
-        const speciesId = pickSpecies()
+    // Гнёзда: [мин, макс] мобов, вид — по полосе биома гнезда.
+    this.cave.nests.forEach((nest, index) => {
+      this.eco.registerNest(index, nest.tx, nest.ty, nest.biome)
+      const count = Phaser.Math.Between(spawnCfg.perNest[0], spawnCfg.perNest[1])
+      for (let i = 0; i < count; i++) {
+        const speciesId = this.pickSpeciesForBiome(nest.biome, rng)
         const wx = nest.tx * tile + tile / 2 + rng.range(-tile, tile)
         const wy = nest.ty * tile + tile / 2 - 8 - i * 4
-        addEnemy(speciesId, wx, wy)
+        addEnemy(speciesId, wx, wy, index)
       }
-    }
+    })
 
     // Стартовая еда: несколько слизней в воздушных клетках недалеко от входа.
     const entrance = this.cave.entrance
     let placed = 0
-    for (let tries = 0; tries < 500 && placed < b.entrancePrey; tries++) {
+    for (let tries = 0; tries < 500 && placed < BALANCE.spawn.entrancePrey; tries++) {
       const tx = entrance.x + rng.range(12, 44) * (rng.chance(0.5) ? 1 : -1)
       const ty = entrance.y + rng.range(-10, 14)
       if (tx < 1 || ty < 1 || tx >= this.cave.cols - 1 || ty >= this.cave.rows - 1) continue
@@ -558,6 +590,89 @@ export class CaveScene extends Phaser.Scene {
       if (this.cave.solid[(ty + 1) * this.cave.cols + tx] !== 1) continue
       addEnemy('slug', tx * tile + tile / 2, ty * tile + tile / 2)
       placed++
+    }
+  }
+
+  /** Вид для биома по весам ENEMIES.spawn.byBiome (с капом вида). */
+  private pickSpeciesForBiome(biome: number, rng: Rng): string {
+    const spawnCfg = ENEMIES.spawn
+    const table = spawnCfg.byBiome[biome] ?? null
+    const entries = table ?? spawnCfg.byBiome.flatMap((t) => t)
+    const allowed = entries.filter((w) => this.speciesCount(w.id) < spawnCfg.maxPerSpecies)
+    const pool = allowed.length > 0 ? allowed : entries
+    const roll = rng.float() * pool.reduce((s, w) => s + w.weight, 0)
+    let acc = 0
+    for (const w of pool) {
+      acc += w.weight
+      if (roll < acc) return w.id
+    }
+    return pool[0]?.id ?? spawnCfg.biomeFallback[0]
+  }
+
+  private speciesCount(id: string): number {
+    let n = 0
+    for (const e of this.enemies) if (!e.dead && e.speciesId === id) n++
+    return n
+  }
+
+  /** Возрождение у гнезда (вызывает Ecosystem): капы, потолок, вид по биому. */
+  private spawnEnemyAtNest(nest: NestRecord): boolean {
+    if (this.enemies.length >= BALANCE.spawn.maxAlive) return false
+    const rng = new Rng(hashSeed(`${this.cave.seed}:respawn:${nest.index}:${this.eco.counters.respawns}`))
+    const speciesId = this.pickSpeciesForBiome(nest.biome, rng)
+    if (this.speciesCount(speciesId) >= ENEMIES.spawn.maxPerSpecies) return false
+    const tile = this.cave.tile
+    const wx = nest.tx * tile + tile / 2 + rng.range(-tile, tile)
+    const wy = nest.ty * tile + tile / 2 - 8
+    this.addEnemyAt(speciesId, wx, wy, nest.index)
+    return true
+  }
+
+  /** Тест-хук и возрождение: создать моба вида у точки. */
+  private addEnemyAt(speciesId: string, wx: number, wy: number, nestIndex = -1): Enemy | null {
+    if (this.enemies.length >= BALANCE.spawn.maxAlive) return null
+    const enemy = new Enemy(this, wx, wy, speciesId, this.enemyCallbacks())
+    enemy.nestIndex = nestIndex
+    if (this.tileLayers) {
+      this.physics.add.collider(enemy, [this.tileLayers.stone, this.tileLayers.ground])
+    }
+    this.enemies.push(enemy)
+    return enemy
+  }
+
+  /**
+   * Единый набор коллбеков мобов: сцена — единственная точка, где моб
+   * касается игрока, крови, спор, огня и экосистемы.
+   */
+  private enemyCallbacks(): import('../entities/Enemy').EnemyCallbacks {
+    return {
+      onPlayerBitten: (damage, _x, attacker) => {
+        const applied = this.combat.hurtPlayer(damage)
+        if (applied > 0 && this.sceneMods.thorns > 0 && !attacker.dead) {
+          this.combat.reflectThorns(attacker)
+        }
+      },
+      onPlayerDrain: (attacker, amount) => {
+        const applied = this.combat.hurtPlayerDrain(amount)
+        // Кровосос лечится выпитым (в Enemy считает только для мобов).
+        if (applied > 0) attacker.hp = Math.min(attacker.maxHp, attacker.hp + amount)
+      },
+      onMobHitMob: (attacker, victim, applied, type) => {
+        this.eco.counters.mobHits++
+        const bloodCol = type === 'fire' ? '#E2763A' : type === 'acid' ? '#a8e34f' : '#E23A4E'
+        this.blood.burst(victim.x, victim.y, {
+          count: 10, dirDeg: 90, spreadDeg: 360,
+        })
+        this.blood.number(victim.x, victim.y - 14, `${applied}`, bloodCol)
+        void attacker
+      },
+      onShootSpores: (attacker, tx, ty) => this.spores.fireFrom(attacker, tx, ty),
+      onSpawnFire: (_enemy, x, y) => this.fire.spawn(x, y),
+      onNoise: (enemy, kind) => {
+        if (kind === 'eat') this.eco.counters.mobMeals++
+        this.eco.emitNoise(enemy, kind, this.enemies)
+      },
+      onDeath: (e, killer) => this.handleEnemyDeath(e, killer),
     }
   }
 
@@ -759,7 +874,17 @@ export class CaveScene extends Phaser.Scene {
     this.physics.add.overlap(this.creature, zone, () => this.descend())
   }
 
-  /** Крючки для верификации (agent-browser) — шаг 6. */
+  /** Состав популяции «вид×N» для debug-оверлея. */
+  private ecoPopulation(): string {
+    const counts = new Map<string, number>()
+    for (const e of this.enemies) {
+      if (e.dead) continue
+      counts.set(e.speciesId, (counts.get(e.speciesId) ?? 0) + 1)
+    }
+    return [...counts.entries()].map(([id, n]) => `${id}×${n}`).join(' ') || '—'
+  }
+
+  /** Крючки для верификации (agent-browser) — шаг 6+7. */
   private registerHooks(genMs: number): void {
     ;(window as unknown as Record<string, unknown>).__CAVE__ = {
       seed: this.cave.seed,
@@ -831,6 +956,8 @@ export class CaveScene extends Phaser.Scene {
         y: Math.round(e.y),
         hp: e.hp,
         state: e.aiState,
+        target: e.targetLabel,
+        nest: e.nestIndex,
       })),
       killNearest: () => {
         let best: Enemy | null = null
@@ -842,7 +969,7 @@ export class CaveScene extends Phaser.Scene {
             bestD = d
           }
         }
-        if (best) best.takeDamage(9999, this.creature.facing)
+        if (best) best.takeDamage(9999, this.creature.facing, 0, 'physical', 'player')
         return best ? best.speciesId : null
       },
       forceWindup: () => {
@@ -877,6 +1004,64 @@ export class CaveScene extends Phaser.Scene {
         owned: () => this.mutations.ownedList.map((m) => `${m.name} (${m.rarity})`),
         dropAtPlayer: () => this.mutations.rollDrop(this.creature.x + 40, this.creature.y),
         count: () => this.mutations.ownedCount,
+        grant: (id: string) => {
+          const def = MUTATIONS.pool.find((m) => m.id === id)
+          if (!def) return false
+          this.mutations.grantForTest(def)
+          return true
+        },
+      },
+      // ── Экосистема шага 7 ─────────────────────────────────────────────
+      eco: {
+        stats: () => ({ ...this.eco.counters }),
+        population: () => this.ecoPopulation(),
+        nests: () => this.eco.nests.map((n) => ({ index: n.index, tx: n.tx, ty: n.ty, biome: n.biome, respawnAt: n.respawnAt })),
+        /** Заспавнить вид рядом с игроком (верификация ролей/атак). */
+        spawnAt: (speciesId: string, dx = 90, dy = -20) => {
+          const e = this.addEnemyAt(speciesId, this.creature.x + dx, this.creature.y + dy)
+          return e ? { x: Math.round(e.x), y: Math.round(e.y) } : null
+        },
+        /** Проверка брони: урон по ближайшему мобу заданным типом. */
+        hitNearest: (amount: number, type: 'physical' | 'acid' | 'fire') => {
+          let best: Enemy | null = null
+          let bestD = Infinity
+          for (const e of this.enemies) {
+            const d = Phaser.Math.Distance.Between(e.x, e.y, this.creature.x, this.creature.y)
+            if (d < bestD) {
+              best = e
+              bestD = d
+            }
+          }
+          if (!best) return null
+          const applied = best.takeDamage(amount, 1, 0, type, 'player')
+          return { id: best.speciesId, applied, dead: best.dead }
+        },
+        /** Ранить ближайшего моба до доли HP (проверка бегства/свёртки). */
+        woundNearest: (ratio: number) => {
+          let best: Enemy | null = null
+          let bestD = Infinity
+          for (const e of this.enemies) {
+            const d = Phaser.Math.Distance.Between(e.x, e.y, this.creature.x, this.creature.y)
+            if (d < bestD) {
+              best = e
+              bestD = d
+            }
+          }
+          best?.debugWound(ratio)
+          return best ? { id: best.speciesId, hp: best.hp, state: best.aiState } : null
+        },
+        /** Огненная лужа под ногами игрока (проверка горения без ожидания ползуна). */
+        fireAtPlayer: () => {
+          this.fire.spawn(this.creature.x + 12, this.creature.y)
+          return this.fire.activeCount
+        },
+        /** Выстрел жнеца у игрока (проверка спор без ожидания). */
+        sporesAtPlayer: () => {
+          const reaper = this.addEnemyAt('reaper', this.creature.x + 150, this.creature.y - 40)
+          if (!reaper) return false
+          this.spores.fireFrom(reaper, this.creature.x, this.creature.y)
+          return true
+        },
       },
       quality: {
         level: () => QUALITY.level,

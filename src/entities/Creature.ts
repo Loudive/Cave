@@ -46,6 +46,9 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
   public mods = { wallSlideMult: 1, airJumps: 0 }
   private airJumpsLeft = 0
 
+  /** Споровая пыль (шаг 7): до этого времени бег замедлен (BALANCE.spore). */
+  public slowUntil = 0
+
   /** Последнее горизонтальное направление взгляда (1 правый, −1 левый). */
   private facingDir: 1 | -1 = 1
 
@@ -166,8 +169,12 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
     const dir = (this.down(this.keys.right) ? 1 : 0) - (this.down(this.keys.left) ? 1 : 0)
     if (dir !== 0) this.facingDir = dir as 1 | -1
 
+    // Споровая пыль (шаг 7): и разгон, и потолок скорости режутся.
+    const slowed = this.scene.time.now < this.slowUntil
+    const slowK = slowed ? 1 - BALANCE.spore.slowFactor : 1
+
     if (dir !== 0) {
-      body.velocity.x = moveToward(body.velocity.x, dir * cfg.runMaxSpeed, accel * dt)
+      body.velocity.x = moveToward(body.velocity.x, dir * cfg.runMaxSpeed * slowK, accel * slowK * dt)
     } else {
       // Трение: к нулю за счёт runFriction (в воздухе — слабее, airControl).
       const fr = (inAir ? cfg.runFriction * cfg.airControl : cfg.runFriction) * dt

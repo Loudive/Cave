@@ -558,4 +558,184 @@ makeSilhouette('silhouette-near.png', 52, {
   c.save('mutation-gem.png')
 }
 
+// ── Шаг 7: мобы живой экосистемы ───────────────────────────────────────────
+// Читаемость силуэтов (гайд §7): «округлые безопаснее, угловатые опаснее».
+// Жнец — округлая мантия + угловатая бахрома; кровосос — тощий, острая пасть;
+// панцирь — купол с ржавыми кромками; ползун — низкий, зазубренная спина.
+
+/** Споровый жнец 20×26: худой гриб-сторож в мантии из спор (опасный). */
+{
+  const c = new Canvas(20, 26)
+  const mantle = [0x6a, 0x4a, 0x8a]
+  const mantleDark = [0x46, 0x2e, 0x60]
+  const stem = [0x8a, 0x76, 0x9a]
+  // Шляпка-капюшон (округлая верхушка).
+  for (let y = 0; y <= 7; y++) {
+    const half = Math.round(Math.sqrt(Math.max(0, 1 - ((y - 7) / 7) ** 2)) * 8.6)
+    c.rect(10 - half, y, 10 + half, y, mantle, 255)
+  }
+  // Бахрома-лезвия по краю шляпки (угловатость = опасность).
+  for (let i = 0; i < 5; i++) {
+    const x = 2 + i * 4
+    c.rect(x, 7, x, 11 + (i % 2) * 2, mantleDark, 255)
+  }
+  // Тело-стебель.
+  for (let y = 10; y <= 24; y++) {
+    const half = Math.max(2, Math.round(4.4 * (1 - (y - 10) / 18)))
+    c.rect(10 - half, y, 10 + half, y, stem, 255)
+  }
+  // Споровые точки на мантии.
+  const rnd = mulberry32(71)
+  for (let i = 0; i < 10; i++) {
+    c.px(4 + Math.floor(rnd() * 12), 1 + Math.floor(rnd() * 6), PAL.spore, 230)
+  }
+  // Глазки — две щели в тени капюшона.
+  c.rect(7, 9, 8, 10, PAL.ink, 255)
+  c.rect(11, 9, 12, 10, PAL.ink, 255)
+  c.save('mob-reaper.png')
+}
+
+/** Кровосос 22×14: тощий полупрозрачный пиявщик с пастью (опасный). */
+{
+  const c = new Canvas(22, 14)
+  const flesh = [0x8a, 0x3a, 0x46]
+  const fleshDark = [0x5e, 0x22, 0x30]
+  const pale = [0xc4, 0x74, 0x7e]
+  // Тело — вытянутая капля.
+  for (let y = 2; y <= 11; y++) {
+    const t = (y - 6.5) / 4.5
+    const half = Math.round(Math.sqrt(Math.max(0, 1 - t * t)) * 8.2)
+    if (half <= 0) continue
+    c.rect(9 - half, y, 9 + half, y, flesh, 255)
+  }
+  // Хвостовой плавник (угловатый).
+  c.rect(1, 6, 4, 7, fleshDark, 255)
+  c.rect(2, 4, 3, 5, fleshDark, 220)
+  // Спинные шипы.
+  for (const x of [6, 10, 14]) c.rect(x, 1, x, 3, fleshDark, 255)
+  // Брюхо-просвет (полупрозрачность сытости).
+  c.rect(5, 8, 14, 10, pale, 140)
+  // Пасть на треть тела: раскрытые створки с зубами.
+  c.rect(15, 5, 21, 8, fleshDark, 255)
+  c.rect(17, 6, 21, 7, PAL.ink, 255)
+  for (const x of [17, 19, 21]) c.rect(x, 6, x, 6, [0xe8, 0xd0, 0xc8], 255)
+  // Глаз-бусина на бугре.
+  c.rect(12, 4, 12, 4, [0xff, 0xd9, 0xdc], 255)
+  c.save('mob-bloodsucker.png')
+}
+
+/** Бронепанцирь 26×18: купол окаменевшей брони (танк; ржавые кромки). */
+{
+  const c = new Canvas(26, 18)
+  const shell = [0x6e, 0x6a, 0x5c]
+  const shellDark = [0x4a, 0x46, 0x3c]
+  const rust = [0x8a, 0x5a, 0x3a]
+  // Купол.
+  for (let y = 2; y <= 15; y++) {
+    const t = (y - 2) / 13
+    const half = Math.round(Math.sqrt(Math.max(0, 1 - (1 - t) * (1 - t))) * 11.6)
+    if (half <= 0) continue
+    c.rect(13 - half, y, 13 + half, y, shell, 255)
+  }
+  // Верхняя дуга темнее (объём).
+  for (let x = 4; x <= 21; x++) {
+    for (let y = 2; y <= 6; y++) {
+      const t = Math.abs(x - 13) / 9.6
+      if (1 - t * t > 0.3 + (6 - y) * 0.14) c.px(x, y, shellDark, 255)
+    }
+  }
+  // Ржавые кромки-пластины (вертикальные швы).
+  for (const x of [6, 10, 13, 16, 20]) {
+    c.rect(x, 4, x, 15 - Math.abs(x - 13) / 3, rust, 210)
+  }
+  // Плоское основание-юбка.
+  c.rect(2, 14, 23, 16, shellDark, 255)
+  c.rect(3, 16, 22, 16, PAL.ink, 160)
+  // Щель-глаз спереди (единственный признак жизни).
+  c.rect(20, 9, 22, 10, PAL.acid, 255)
+  c.save('mob-shell.png')
+}
+
+/** Лавовый ползун 24×14: низкий, зазубренная спина, янтарные щели (опасный). */
+{
+  const c = new Canvas(24, 14)
+  const hide = [0x4a, 0x3a, 0x34]
+  const hideDark = [0x30, 0x24, 0x20]
+  const ember = [0xe2, 0x76, 0x3a]
+  const emberHot = [0xff, 0xc4, 0x8a]
+  // Низкое широкое тело.
+  for (let y = 4; y <= 12; y++) {
+    const t = (y - 4) / 8
+    const half = Math.round((0.55 + t * 0.45) * 10.4)
+    c.rect(11 - half, y, 11 + half, y, hide, 255)
+  }
+  // Зазубренная спина (угловатость = опасность).
+  for (let i = 0; i < 6; i++) {
+    const x = 3 + i * 4
+    const h = i % 2 === 0 ? 3 : 2
+    c.rect(x, 4 - h, x + 1, 4, hideDark, 255)
+  }
+  // Янтарные щели между пластинами.
+  for (const x of [5, 9, 13, 17]) {
+    c.rect(x, 6, x, 11, ember, 255)
+    c.px(x, 7, emberHot, 255)
+    c.px(x, 9, emberHot, 220)
+  }
+  // Брюхо темнее.
+  c.rect(4, 11, 20, 12, hideDark, 220)
+  // Глаз-угольки.
+  c.rect(18, 7, 19, 7, emberHot, 255)
+  c.rect(15, 7, 16, 7, emberHot, 255)
+  c.save('mob-lava.png')
+}
+
+/** Споровый снаряд 10×10: светящийся шарик с ореолом (жнец). */
+{
+  const c = new Canvas(10, 10)
+  c.radial(5, 5, 5, PAL.spore, [[0, 1], [0.4, 0.85], [1, 0]])
+  c.px(4, 4, [0xf0, 0xdc, 0xff], 255)
+  c.px(5, 5, [0xf0, 0xdc, 0xff], 220)
+  c.save('spore-bolt.png')
+}
+
+/** Лужа огня 16×12: рваное пламя (лавовый след; красится в коде). */
+{
+  const c = new Canvas(16, 12)
+  const base = [0xff, 0x8a, 0x3a]
+  const hot = [0xff, 0xd4, 0x8a]
+  const rnd = mulberry32(72)
+  // Рваное основание лужи.
+  for (let x = 1; x <= 14; x++) {
+    const h = 4 + Math.round(rnd() * 4)
+    c.rect(x, 12 - h, x, 11, base, 235)
+  }
+  // Языки пламени.
+  for (const x of [4, 7, 10, 12]) {
+    const h = 5 + Math.round(rnd() * 4)
+    c.rect(x, 11 - h, x, 8, base, 255)
+    c.rect(x, 10, x, 11, hot, 255)
+  }
+  // Горячее ядро.
+  c.rect(6, 9, 9, 11, hot, 245)
+  c.save('fire-patch.png')
+}
+
+/** Кольцо шума 64×64 (белый контур — красится tint'ом вида): «звук» в темноте. */
+{
+  const c = new Canvas(64, 64)
+  const r = 30
+  const cx = 32
+  const cy = 32
+  for (let y = 0; y < 64; y++) {
+    for (let x = 0; x < 64; x++) {
+      const d = Math.hypot(x - cx, y - cy)
+      if (d <= r && d >= r - 2.2) {
+        const a = Math.round(255 * Math.min(1, (d - (r - 2.2)) / 1.4))
+        c.px(x, y, [255, 255, 255], a)
+      }
+    }
+  }
+  c.save('ring.png')
+}
+
 console.log('Готово: assets/ обновлён (детерминированно, seed=20261027).')

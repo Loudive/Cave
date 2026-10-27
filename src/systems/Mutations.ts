@@ -73,6 +73,36 @@ export class Mutations {
     this.spawnGem(x, y, picked)
   }
 
+  /**
+   * Прямая выдача мутации (тест-хук верификации и будущие источники —
+   * уникальные мобы, ген-цветки). Полный путь подбора: эффект + баннер.
+   */
+  grantForTest(def: MutationDef): void {
+    if (this.owned.some((o) => o.id === def.id)) return
+    if (this.owned.length >= BALANCE.mutations.maxOwned) return
+    const color = rarityColor(def.rarity)
+    const epic = def.rarity === 'epic'
+    const flash = this.scene.add.image(this.scene.cameras.main.midPoint.x, this.scene.cameras.main.midPoint.y, 'glow-purple')
+      .setDepth(DEPTH_GEM_TWIN + 1)
+      .setTint(color)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setScale(0.4)
+      .setAlpha(0.8)
+    this.scene.tweens.add({
+      targets: flash,
+      scale: epic ? 2.6 : 1.8,
+      alpha: 0,
+      duration: 420,
+      onComplete: () => flash.destroy(),
+    })
+    this.owned.push(def)
+    this.vitals.mutationsCount++
+    this.applyEffect(def)
+    this.showBanner(def)
+    this.onApply?.(def)
+    this.onPickedUp?.()
+  }
+
   private spawnGem(x: number, y: number, def: MutationDef): void {
     const color = rarityColor(def.rarity)
     const img = this.scene.add.image(x, y, 'mutation-gem')
@@ -180,6 +210,7 @@ export class Mutations {
         break
       case 'biteDamage':
         this.vitals.biteDamageMult = e.mult
+        if (e.acid) this.vitals.biteAcid = true
         break
       case 'secondHeart':
         this.vitals.hasSecondHeart = true

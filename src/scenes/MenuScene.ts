@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 
 /**
- * MenuScene — шаг 6.
+ * MenuScene — шаг 7.
  * Титульный экран: нейрогенерированный splash-арт (шаг 5+ разрешает
  * нейрогенерацию; Nano Banana Pro, палитра игры), споровое свечение,
  * название, вход в пещеру.
@@ -70,7 +70,7 @@ export class MenuScene extends Phaser.Scene {
       ease: 'Sine.InOut',
     })
 
-    this.add.text(cx, height - 28, 'шаг 6 — боёвка, голод и поедание · укус · кровь · рост', {
+    this.add.text(cx, height - 28, 'шаг 7 — мобы и живая экосистема · 6 видов · драки без тебя', {
       fontFamily: 'monospace',
       fontSize: '12px',
       color: '#8A8894',

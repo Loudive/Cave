@@ -43,6 +43,14 @@ export const ASSETS: AssetEntry[] = [
   { key: 'mob-bat', file: 'mob-bat.png' },
   { key: 'meat-chunk', file: 'meat-chunk.png' },
   { key: 'mutation-gem', file: 'mutation-gem.png' },
+  // Экосистема (шаг 7): четыре новых вида, споровый снаряд, лужа огня, кольцо шума.
+  { key: 'mob-reaper', file: 'mob-reaper.png' },
+  { key: 'mob-bloodsucker', file: 'mob-bloodsucker.png' },
+  { key: 'mob-shell', file: 'mob-shell.png' },
+  { key: 'mob-lava', file: 'mob-lava.png' },
+  { key: 'spore-bolt', file: 'spore-bolt.png' },
+  { key: 'fire-patch', file: 'fire-patch.png' },
+  { key: 'ring', file: 'ring.png' },
   // Нейрогенерация (шаг 5+ разрешена): splash-арт меню, палитра игры.
   { key: 'menu-splash', file: 'menu-splash.jpg' },
   // Пост-эффекты.

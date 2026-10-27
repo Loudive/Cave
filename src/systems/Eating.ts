@@ -13,7 +13,8 @@ import type { Vitals } from './Vitals'
  * «шёлк падали» над тьмой — «еда сама зовёт» (читаемость в темноте).
  */
 
-interface Carcass {
+/** Туша: живёт в Eating, виден и мобам (шаг 7 — падальщики). */
+export interface Carcass {
   speciesId: string
   sprite: Phaser.GameObjects.Image
   /** Тёплый отблеск над маской: падаль видно в темноте. */
@@ -86,6 +87,39 @@ export class Eating {
       meatTotal: sp.meat,
       bornAt: this.scene.time.now,
     })
+  }
+
+  // ── Шаг 7: туши для мобов (экосистема ест падаль и соревнуется с игроком)
+
+  /**
+   * Моб откусывает от туши. Возвращает фактически съеденное (мяса могло
+   * не хватить — тушу доедает кто-то другой). Пустая туша исчезает
+   * с той же «сытой» вспышкой, что и после трапезы существа.
+   */
+  mobBite(carcass: Carcass, portion: number): number {
+    if (!this.carcasses.includes(carcass) || carcass.meatLeft <= 0) return 0
+    const bitten = Math.min(portion, carcass.meatLeft)
+    carcass.meatLeft -= bitten
+
+    // Туша тает от чужой пасти так же, как от нашей.
+    const ratio = Math.max(0.12, carcass.meatLeft / carcass.meatTotal)
+    this.scene.tweens.killTweensOf(carcass.sprite)
+    this.scene.tweens.add({
+      targets: carcass.sprite,
+      scaleX: 1.15 * ratio + 0.35,
+      scaleY: 0.6 * ratio + 0.2,
+      duration: 120,
+      ease: 'Quad.Out',
+    })
+
+    if (carcass.meatLeft <= 0) {
+      const idx = this.carcasses.indexOf(carcass)
+      if (idx >= 0) {
+        if (this.chewing === carcass) this.cancelChew()
+        this.despawnCarcass(idx, true)
+      }
+    }
+    return bitten
   }
 
   /** Ближайшая туша в радиусе (кнопка укуса становится «съесть»). */

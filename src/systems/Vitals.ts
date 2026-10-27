@@ -24,6 +24,8 @@ export class Vitals {
   biteDamageMult = 1
   digestMult = 1
   hasSecondHeart = false
+  /** «Кислотные железы» (шаг 7): укус — кислотный, пробивает панцири. */
+  biteAcid = false
 
   /** Счётчики забега (для экрана смерти). */
   eatenCount = 0

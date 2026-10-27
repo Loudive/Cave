@@ -142,7 +142,10 @@ export class Combat {
   private applyHit(enemy: Enemy): void {
     const hit = BALANCE.hit
     const facing = this.creature.facing
-    const killed = enemy.takeDamage(this.vitals.biteDamage, facing, this.mods.stunMs)
+    // «Кислотные железы»: укус — кислотный, растворяет панцири (шаг 7).
+    const dmgType: import('../config/enemies').DamageType = this.vitals.biteAcid ? 'acid' : 'physical'
+    const applied = enemy.takeDamage(this.vitals.biteDamage, facing, this.mods.stunMs, dmgType, 'player')
+    const killed = enemy.dead
 
     // Кровь в сторону укуса + на пол под жертвой.
     this.blood.burst(enemy.x, enemy.y, {
@@ -157,11 +160,11 @@ export class Combat {
     if (killed) {
       this.hitStop.freeze(hit.killHitstopMs)
       this.shakeCamera(hit.killShakePx, hit.killShakeMs)
-      this.blood.number(enemy.x, enemy.y - 18, `${this.vitals.biteDamage}`, '#ffffff', true)
+      this.blood.number(enemy.x, enemy.y - 18, `${Math.round(applied)}`, '#ffffff', true)
     } else {
       this.hitStop.freeze(hit.hitstopMs)
       this.shakeCamera(hit.shakePx, hit.shakeMs)
-      this.blood.number(enemy.x, enemy.y - 16, `${this.vitals.biteDamage}`, '#ffffff')
+      this.blood.number(enemy.x, enemy.y - 16, `${Math.round(applied)}`, '#ffffff')
     }
   }
 
@@ -201,9 +204,55 @@ export class Combat {
   /** Отражение «Токсичной шкуры» — вызывает сцена после урона игроку. */
   reflectThorns(attacker: Enemy): void {
     if (this.mods.thorns <= 0 || attacker.dead) return
-    attacker.takeDamage(this.mods.thorns, Math.sign(attacker.x - this.creature.x) || 1)
+    attacker.takeDamage(this.mods.thorns, Math.sign(attacker.x - this.creature.x) || 1, 0, 'physical', 'player')
     this.blood.burst(attacker.x, attacker.y, { count: 8, dirDeg: 90, spreadDeg: 360 })
     this.blood.number(attacker.x, attacker.y - 14, `${this.mods.thorns}`, '#a8e34f')
+  }
+
+  // ── Каналы непрерывного урона шага 7 (экосистема атакует и без укусов).
+  // Не расходуют неуязвимость после удара (это не удар, а среда/канал),
+  // но уважают смерть и «Второе сердце» в Vitals.
+
+  /** Пиявка кровососа: малые порции без отброса и хитстопа. */
+  hurtPlayerDrain(amount: number): number {
+    if (!this.vitals.alive) return 0
+    const applied = this.vitals.damage(amount)
+    if (applied > 0) {
+      this.blood.number(this.creature.x + Phaser.Math.Between(-8, 8), this.creature.y - 26, `−${Math.round(applied)}`, '#E23A4E')
+    }
+    return applied
+  }
+
+  /** Огонь лавового следа: тикает по tickMs, пока цель в луже. */
+  hurtPlayerFire(amount: number): number {
+    if (!this.vitals.alive) return 0
+    const applied = this.vitals.damage(amount)
+    if (applied > 0) {
+      this.blood.number(this.creature.x + Phaser.Math.Between(-10, 10), this.creature.y - 24, `−${Math.round(applied)}`, '#E2763A')
+      this.creature.hurtVisual(240)
+    }
+    return applied
+  }
+
+  /** Спора жнеца: снаряд — как урон по игроку, с неуязвимостью и juice. */
+  hurtPlayerSpore(damage: number): number {
+    if (!this.vitals.alive) return 0
+    const now = this.scene.time.now
+    if (now < this.invulnUntil) return 0
+    const applied = this.vitals.damage(damage)
+    if (applied >= 0 && this.vitals.alive) {
+      this.invulnUntil = now + BALANCE.player.invulnAfterHitMs
+      this.creature.hurtVisual(BALANCE.player.invulnAfterHitMs)
+      // Споровая пыль: фиолетовый выброс + замедление существа.
+      this.blood.burst(this.creature.x, this.creature.y, {
+        count: 10, dirDeg: 90, spreadDeg: 360, texture: 'spore', sticky: false,
+      })
+      this.blood.number(this.creature.x, this.creature.y - 24, `−${damage}`, '#B36BFF', true)
+      this.creature.slowUntil = now + BALANCE.spore.slowMs
+      this.hitStop.freeze(BALANCE.hit.hitstopMs)
+      this.shakeCamera(BALANCE.hit.shakePx, BALANCE.hit.shakeMs)
+    }
+    return applied
   }
 
   /** Текущее состояние (debug). */

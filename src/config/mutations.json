@@ -29,8 +29,8 @@
       "name": "Кислотные железы",
       "rarity": "uncommon",
       "weight": 24,
-      "desc": "Укус пробивает панцири и мембраны: урон +25%",
-      "effect": { "type": "biteDamage", "mult": 1.25 }
+      "desc": "Укус становится кислотным: пробивает панцири (бронепанцирь), урон +25%",
+      "effect": { "type": "biteDamage", "mult": 1.25, "acid": true }
     },
     {
       "id": "clot-jumper",

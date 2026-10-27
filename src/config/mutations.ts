@@ -9,7 +9,7 @@ export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic'
 export type MutationEffect =
   | { type: 'grip'; wallSlideMult: number }
   | { type: 'digestion'; mult: number }
-  | { type: 'biteDamage'; mult: number }
+  | { type: 'biteDamage'; mult: number; acid?: boolean }
   | { type: 'doubleJump'; airJumps: number }
   | { type: 'thorns'; damage: number }
   | { type: 'stealth'; detectMult: number }
