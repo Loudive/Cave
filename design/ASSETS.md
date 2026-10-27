@@ -8,6 +8,7 @@
 | --- | --- | --- | --- | --- |
 | Программные ассеты (шаг 2) | `scripts/generate-assets.mjs` (npm run assets) | свой код | 11 PNG: свечения, игрок, камень, виньетка, тайлы, гриб, спора | **подключены** |
 | Программные тайлы (шаг 4) | `scripts/generate-assets.mjs` (npm run assets) | свой код | +5 PNG 16×16: tile-stone, tile-dirt, decor-moss, decor-crystal, decor-bone | **подключены** |
+| Программный свет (шаг 5) | `scripts/generate-assets.mjs` (npm run assets) | свой код | +4 PNG: light-hole (дыра маски), silhouette-far/near (параллакс 768×1280), mote (мошь 12×12) | **подключены** |
 | 0x72 DungeonTileset II | 0x72.itch.io/dungeontileset-ii | CC0 | Тайлы пещер, стены, полы, простые мобы | запланирован (шаг 3–4) |
 | Blood FX / Hit Spark паки | itch.io: free + pixel art + vfx | TBD (читать карточку) | Кровь, брызги, ударные вспышки | запланирован (шаг 6, 9) |
 | game-icons.net | game-icons.net | CC BY 3.0 (авторы в титрах) | Иконки генов и навыков древа (4180 SVG) | запланирован (шаг 8, 11) |

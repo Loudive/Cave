@@ -30,6 +30,11 @@ export const ASSETS: AssetEntry[] = [
   { key: 'decor-moss', file: 'decor-moss.png' },
   { key: 'decor-crystal', file: 'decor-crystal.png' },
   { key: 'decor-bone', file: 'decor-bone.png' },
+  // Свет и атмосфера (шаг 5): дыра световой маски, параллакс-силуэты, мошь.
+  { key: 'light-hole', file: 'light-hole.png' },
+  { key: 'silhouette-far', file: 'silhouette-far.png' },
+  { key: 'silhouette-near', file: 'silhouette-near.png' },
+  { key: 'mote', file: 'mote.png' },
   // Пост-эффекты.
   { key: 'vignette', file: 'vignette.png' },
 ]

@@ -336,4 +336,95 @@ makeGlow('glow-acid.png', PAL.acid)
   c.save('decor-bone.png')
 }
 
+// ── Шаг 5: свет и атмосфера ────────────────────────────────────────────────
+// Световая маска вырезает дыры радиальной «дырой»-текстурой: плато в центре
+// (мир вокруг игрока читается целиком) и мягкий спад к краям.
+
+/** Световая дыра 256×256: плоское плато, плавный спад — для erase в маске тьмы. */
+{
+  const c = new Canvas(256, 256)
+  c.radial(128, 128, 128, [255, 255, 255], [[0, 1], [0.45, 0.82], [1, 0]])
+  c.save('light-hole.png')
+}
+
+/** Мошка 12×12: мягкая точка — спрайт силуэтной фауны тьмы. */
+{
+  const c = new Canvas(12, 12)
+  c.radial(6, 6, 6, [255, 255, 255], [[0, 1], [0.6, 0.9], [1, 0]])
+  c.save('mote.png')
+}
+
+/**
+ * Параллакс-силуэт пещеры 768×1280: сталактиты сверху, сталагмиты снизу,
+ * столбы-кляксы в середине. Горизонтальная бесшовность — каждая фигура
+ * дублируется на ±W; вертикальной склейки на экране не бывает (окно
+ * камеры всегда внутри высоты текстуры — см. light.json, factor).
+ */
+function makeSilhouette(name, seed, opts) {
+  const W = 768
+  const H = 1280
+  const c = new Canvas(W, H)
+  if (opts.bg) c.fill(opts.bg)
+  const rnd = mulberry32(seed)
+  const shapes = []
+  for (let i = 0; i < opts.stalactites; i++) {
+    shapes.push({
+      x: Math.floor(rnd() * W),
+      kind: 'stalactite',
+      w: opts.minW + Math.floor(rnd() * (opts.maxW - opts.minW)),
+      len: Math.floor(H * (0.12 + rnd() * opts.maxLen)),
+    })
+  }
+  for (let i = 0; i < opts.stalagmites; i++) {
+    shapes.push({
+      x: Math.floor(rnd() * W),
+      kind: 'stalagmite',
+      w: opts.minW + Math.floor(rnd() * (opts.maxW - opts.minW)),
+      len: Math.floor(H * (0.1 + rnd() * opts.maxLen * 0.7)),
+    })
+  }
+  for (let i = 0; i < opts.pillars; i++) {
+    shapes.push({
+      x: Math.floor(rnd() * W),
+      kind: 'pillar',
+      w: opts.minW + Math.floor(rnd() * (opts.maxW - opts.minW)),
+      len: Math.floor(H * (0.08 + rnd() * 0.14)),
+      cy: Math.floor(H * (0.3 + rnd() * 0.4)),
+    })
+  }
+  for (const s of shapes) {
+    for (const dx of [-W, 0, W]) {
+      const x = s.x + dx
+      if (s.kind === 'pillar') {
+        c.roundRect(x - s.w / 2, s.cy - s.len / 2, x + s.w / 2, s.cy + s.len / 2,
+          Math.floor(s.w / 3), opts.ink, opts.inkA)
+      } else if (s.kind === 'stalactite') {
+        for (let y = 0; y <= s.len; y++) {
+          const t = y / s.len
+          const half = Math.max(1, Math.round((s.w / 2) * (1 - t * t)))
+          c.rect(x - half, y, x + half, y, opts.ink, opts.inkA)
+        }
+      } else {
+        for (let y = 0; y <= s.len; y++) {
+          const t = y / s.len
+          const half = Math.max(1, Math.round((s.w / 2) * (1 - (1 - t) * (1 - t))))
+          c.rect(x - half, H - 1 - y, x + half, H - 1 - y, opts.ink, opts.inkA)
+        }
+      }
+    }
+  }
+  c.save(name)
+}
+
+/** Дальний слой: чуть светлее полотна, мелкий и частый — «стена пещеры в дымке». */
+makeSilhouette('silhouette-far.png', 51, {
+  bg: [0x0a, 0x0a, 0x11], ink: [0x08, 0x08, 0x0d], inkA: 255,
+  stalactites: 10, stalagmites: 8, pillars: 7, minW: 36, maxW: 120, maxLen: 0.34,
+})
+/** Ближний слой: прозрачный фон, крупные тёмные формы поверх дальнего. */
+makeSilhouette('silhouette-near.png', 52, {
+  bg: null, ink: [0x06, 0x06, 0x09], inkA: 235,
+  stalactites: 6, stalagmites: 5, pillars: 4, minW: 60, maxW: 190, maxLen: 0.42,
+})
+
 console.log('Готово: assets/ обновлён (детерминированно, seed=20261027).')

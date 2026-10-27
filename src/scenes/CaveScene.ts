@@ -1,19 +1,23 @@
 import Phaser from 'phaser'
 import { MOVEMENT } from '../config/movement'
 import { GEN, bandColorInt } from '../config/gen'
+import { LIGHT } from '../config/light'
 import { Creature, CreatureKeys } from '../entities/Creature'
 import { DebugOverlay } from '../systems/DebugOverlay'
 import { MiniMap } from '../systems/MiniMap'
+import { DarknessMask } from '../systems/DarknessMask'
+import { SilhouetteMotes } from '../systems/SilhouetteMotes'
 import { buildCaveTilemap } from '../systems/TileBuilder'
 import { generateCave, biomeIndexAtMeters, type CaveData } from '../gen/cave'
 import { Rng, hashSeed } from '../gen/rng'
 
 /**
- * CaveScene — шаг 4: процедурная пещера.
- * cellular automata (каверны) + drunkard's walk (туннели), три слоя тайлов,
- * вход сверху → врата глубже, биомы по глубине с шумовым дрожанием границ,
- * грибы-светильники и гнёзда мобов по правилам биома, мини-карта (M).
- * Seed в URL: ?seed=ABC123&d=2 — пещера воспроизводима и шарится ссылкой.
+ * CaveScene — шаг 5: свет и атмосфера поверх процедурной пещеры.
+ * Полностью тёмный фон: световая маска (RenderTexture) с дырами от источников —
+ * свет игрока (радиус из light.json, «дышит»), грибы (мерцают твином и пульс
+ * читается маской), врата (маяк пути), гнёзда. Два параллакс-слоя силуэтов,
+ * вигнетка, силуэтная мошь вне света. cellular automata + drunkard's walk
+ * из шага 4 не тронуты: seed в URL, биомы по глубине, мини-карта (M).
  *
  * Управление: A/D — бег, Space — прыжок, W — планирование,
  * R — та же пещера заново, N — новый seed, M — мини-карта,
@@ -41,6 +45,9 @@ export class CaveScene extends Phaser.Scene {
   private cave!: CaveData
   private worldW = 0
   private worldH = 0
+  private mask!: DarknessMask
+  private motes!: SilhouetteMotes
+  private parallax: { ts: Phaser.GameObjects.TileSprite; factor: number }[] = []
 
   private seedBase = ''
   private depth = 1
@@ -82,6 +89,10 @@ export class CaveScene extends Phaser.Scene {
 
     // ── Тайлмап: камень + земля (коллизии), декор ──────────────────────────
     const layers = buildCaveTilemap(this, this.cave)
+
+    // ── Атмосфера (шаг 5): параллакс-силуэты и маска тьмы ──────────────────
+    this.buildParallax()
+    this.mask = new DarknessMask(this)
 
     // Дальние силуэты камней — только в воздухе, чтобы не прятались за стенами.
     this.buildBackgroundRocks()
@@ -125,18 +136,29 @@ export class CaveScene extends Phaser.Scene {
     })
     this.cameras.main.startFollow(this.creature, true, 0.09, 0.09)
 
+    // Свет существа: дышит синусоидой (низкое HP на шаге 6+ ускорит пульс).
+    this.mask.setPlayer(this.mask.add({
+      x: () => this.creature.x,
+      y: () => this.creature.y,
+      radius: LIGHT.playerLight.radius,
+      breathe: true,
+    }))
+
     // ── Содержимое пещеры ───────────────────────────────────────────────────
     this.buildMushrooms()
     this.buildNests()
     this.buildAmbientSpores()
     this.buildExitGate()
+    this.motes = new SilhouetteMotes(this, this.cave, this.mask)
 
     // ── UI ──────────────────────────────────────────────────────────────────
+    // Вигнетка-тоннель — ПОВЕРХ маски тьмы: края кадра темны даже в свете.
     const { width, height } = this.scale
     this.add.image(width / 2, height / 2, 'vignette')
-      .setDisplaySize(width * 1.15, height * 1.15)
+      .setDisplaySize(width * LIGHT.vignette.overscan, height * LIGHT.vignette.overscan)
       .setScrollFactor(0)
-      .setDepth(10)
+      .setDepth(18)
+      .setAlpha(LIGHT.vignette.alpha)
 
     this.hud = this.add.text(width - 10, 8, '', {
       fontFamily: 'monospace',
@@ -147,7 +169,7 @@ export class CaveScene extends Phaser.Scene {
     })
       .setOrigin(1, 0)
       .setScrollFactor(0)
-      .setDepth(11)
+      .setDepth(22)
 
     this.add.text(12, height - 14,
       'A/D — бег · SPACE — прыжок · W — планирование · R — та же пещера · N — новая · M — карта · ESC — меню',
@@ -155,7 +177,7 @@ export class CaveScene extends Phaser.Scene {
     )
       .setScrollFactor(0)
       .setOrigin(0, 1)
-      .setDepth(11)
+      .setDepth(22)
       .setAlpha(0.8)
 
     this.miniMap = new MiniMap(this, this.cave)
@@ -163,6 +185,7 @@ export class CaveScene extends Phaser.Scene {
     this.debug = new DebugOverlay(this, this.creature, () => [
       `cave:   ${this.cave.cols}×${this.cave.rows}  air=${Math.round(this.cave.stats.reachableRatio * 100)}%`,
       `gen:    ${this.cave.stats.attempts} попт. ${genMs}мс  hash=${this.cave.stats.hash.toString(16).slice(0, 6)}`,
+      `light:  r=${Math.round(this.mask.playerRadius(this.time.now))}  дыры=${this.mask.lastHoles}  мошь=${this.motes.visibleCount}/${this.motes.count}`,
     ])
 
     // ── Клавиши сценария ────────────────────────────────────────────────────
@@ -198,6 +221,16 @@ export class CaveScene extends Phaser.Scene {
         const meters = this.cave.depthOffsetMeters + this.creature.y * GEN.map.metersPerPixel
         return GEN.biomeBands[biomeIndexAtMeters(meters)].name
       },
+      light: {
+        playerR: () => Math.round(this.mask.playerRadius(performance.now())),
+        holes: () => this.mask.lastHoles,
+        motes: this.motes.count,
+        motesVisible: () => this.motes.visibleCount,
+        config: {
+          radius: LIGHT.playerLight.radius,
+          darknessAlpha: LIGHT.darkness.alpha,
+        },
+      },
       player: () => {
         const b = this.creature.body as Phaser.Physics.Arcade.Body
         return {
@@ -222,6 +255,16 @@ export class CaveScene extends Phaser.Scene {
     this.debug.update(this)
     this.creatureGlow.setPosition(this.creature.x, this.creature.y)
     this.miniMap.update(this.creature.x, this.creature.y, this.cave.tile)
+
+    // Параллакс: tileSprite движется медленнее камеры (глубина пещеры).
+    const cam = this.cameras.main
+    for (const p of this.parallax) {
+      p.ts.tilePositionX = cam.scrollX * p.factor
+      p.ts.tilePositionY = cam.scrollY * p.factor
+    }
+    // Тьма и мошь — каждый кадр (свет следует за существом).
+    this.mask.update(this)
+    this.motes.update(this, this.creature.x, this.creature.y)
 
     // HUD: глобальная глубина забега + биом + seed.
     const meters = Math.max(0, Math.floor(this.cave.depthOffsetMeters + this.creature.y * GEN.map.metersPerPixel))
@@ -251,6 +294,18 @@ export class CaveScene extends Phaser.Scene {
     this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
       this.scene.restart({ seed: this.seedBase, depth: this.depth + 1 })
     })
+  }
+
+  /** Параллакс-силуэты (шаг 5): tileSprite на весь кадр, factor из light.json. */
+  private buildParallax(): void {
+    this.parallax = LIGHT.parallax.map((p) => ({
+      ts: this.add.tileSprite(0, 0, this.scale.width, this.scale.height, p.key)
+        .setOrigin(0, 0)
+        .setScrollFactor(0)
+        .setDepth(p.depth)
+        .setAlpha(p.alpha),
+      factor: p.factor,
+    }))
   }
 
   /** Дальние силуэты камней в воздушных карманах (параллакс-настроение). */
@@ -288,6 +343,13 @@ export class CaveScene extends Phaser.Scene {
         .setScale(0.75)
         .setBlendMode(Phaser.BlendModes.ADD)
         .setDepth(2)
+      // Свет гриба в маске: пульсирует вместе с твином свечения (мерцание).
+      this.mask.add({
+        x: () => x,
+        y: () => y - 9,
+        radius: LIGHT.mushroomLight.radius,
+        scaleNow: () => glow.scaleX / 0.8,
+      })
 
       const sprite = this.add.image(x, y, 'mushroom')
         .setScale(1.4)
@@ -327,6 +389,13 @@ export class CaveScene extends Phaser.Scene {
         .setScale(2.4)
         .setBlendMode(Phaser.BlendModes.ADD)
         .setDepth(1)
+      // Зловещее свечение гнезда: опасность подсвечена, обитатели — шаг 6+.
+      this.mask.add({
+        x: () => x,
+        y: () => y - 8,
+        radius: LIGHT.nestLight.radius,
+        scaleNow: () => marker.scaleX / 2.4,
+      })
       this.tweens.add({
         targets: marker,
         alpha: { from: 0.14, to: 0.34 },
@@ -387,6 +456,13 @@ export class CaveScene extends Phaser.Scene {
       .setAlpha(0.4)
       .setBlendMode(Phaser.BlendModes.ADD)
       .setDepth(1)
+    // Маяк пути (гайд: «путь к выходу помечен нитями циана»).
+    this.mask.add({
+      x: () => x,
+      y: () => y,
+      radius: LIGHT.gateLight.radius,
+      scaleNow: () => gateGlow.scaleX / 2.6,
+    })
     this.tweens.add({
       targets: gateGlow,
       alpha: { from: 0.28, to: 0.52 },
