@@ -1,0 +1,62 @@
+import Phaser from 'phaser'
+import { Creature } from '../entities/Creature'
+
+/**
+ * DebugOverlay — шаг 3: оверлей состояния существа.
+ * Показывает состояние, скорости, coyote/buffer таймеры и FPS.
+ * Переключение — F3. Помогает «чувствовать» параметры movement.json.
+ */
+export class DebugOverlay {
+  private readonly text: Phaser.GameObjects.Text
+  private visible = true
+
+  constructor(
+    scene: Phaser.Scene,
+    private creature: Creature,
+  ) {
+    this.text = scene.add.text(12, 12, '', {
+      fontFamily: 'monospace',
+      fontSize: '13px',
+      color: '#58E6C8',
+      backgroundColor: 'rgba(11,11,16,0.72)',
+      padding: { x: 8, y: 6 },
+      lineSpacing: 3,
+    })
+      .setScrollFactor(0)
+      .setDepth(20)
+
+    scene.input.keyboard?.on('keydown-F3', () => {
+      this.visible = !this.visible
+      this.text.setVisible(this.visible)
+    })
+  }
+
+  update(scene: Phaser.Scene): void {
+    if (!this.visible) return
+
+    const body = this.creature.body as Phaser.Physics.Arcade.Body
+    const now = scene.time.now
+    const fps = Math.round(scene.game.loop.actualFps)
+    const state = this.creature.getState()
+
+    // Цвет состояния: зелёный — «ок», фиолетовый — стены, циан — глайд.
+    const stateColor: Record<string, string> = {
+      'ground': '#A8E34F',
+      'jump': '#E8E6E3',
+      'fall': '#E8E6E3',
+      'wall-slide': '#B36BFF',
+      'glide': '#58E6C8',
+      'wall-lock': '#E23A4E',
+    }
+
+    const wall = this.creature.wallSide < 0 ? '<-' : this.creature.wallSide > 0 ? '->' : '.'
+    this.text.setText([
+      `state:  ${state}`,
+      `speed:  vx=${Math.round(body.velocity.x).toString().padStart(4)}  vy=${Math.round(body.velocity.y).toString().padStart(4)}`,
+      `floor:  ${this.creature.onFloor ? 'yes' : 'no '}   wall: ${wall}`,
+      `coyote: ${Math.round(this.creature.coyoteLeft(now)).toString().padStart(3)}ms  buffer: ${Math.round(this.creature.jumpBufferLeft(now)).toString().padStart(3)}ms`,
+      `fps:    ${fps}`,
+    ])
+    this.text.setColor(stateColor[state] ?? '#E8E6E3')
+  }
+}

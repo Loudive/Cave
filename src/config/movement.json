@@ -1,0 +1,36 @@
+{
+  "_doc": {
+    "readme": "Все параметры движения существа (шаг 3). Код не содержит магических констант баланса — правь только этот файл. Значения в пикселях/сек и миллисекундах. Единицы скорости: px/s; тайминги: мс.",
+    "run": "Бег: runAccel — ускорение, runFriction — торможение без ввода, runMaxSpeed — потолок скорости.",
+    "jump": "Прыжок: jumpVelocity — отрицательный импульс вверх; coyoteTime — сколько мс после схода с края ещё можно прыгнуть; jumpBuffer — сколько мс до приземления «прощается» нажатие прыжка; jumpCutMultiplier — во сколько раз гасится подъём при раннем отпускании (переменная высота прыжка).",
+    "wall": "Стены: wallSlideMaxFall — потолок скорости падения при скольжении по стене; wallJump — импульс от стены и wallLockTime, на который ввод игрока игнорируется (чтобы не прилипнуть обратно).",
+    "glide": "Планирование: удерживай ВВЕРХ в воздухе — падение тормозится с ускорением glideBrake (px/s²) до потолка glideFallSpeed (характеристика «Планирование» из GDD §3).",
+    "gravity": "Мировая гравитация вниз; terminalVelocity — потолок скорости падения без планирования.",
+    "respawn": "Ниже respawnFallY пикселей от верха мира — существо «тонет в бездне» и возвращается на точку входа."
+  },
+  "run": {
+    "runAccel": 1500,
+    "runFriction": 1400,
+    "runMaxSpeed": 260,
+    "airControl": 0.65
+  },
+  "jump": {
+    "jumpVelocity": -680,
+    "coyoteTime": 100,
+    "jumpBuffer": 120,
+    "jumpCutMultiplier": 0.45
+  },
+  "wall": {
+    "wallSlideMaxFall": 90,
+    "wallJumpVelocityX": 280,
+    "wallJumpVelocityY": -560,
+    "wallLockTime": 130
+  },
+  "glide": {
+    "glideFallSpeed": 85,
+    "glideBrake": 1400
+  },
+  "gravity": 1350,
+  "terminalVelocity": 820,
+  "respawnFallY": 1600
+}
