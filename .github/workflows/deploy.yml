@@ -33,6 +33,13 @@ jobs:
       - name: Typecheck and build
         run: npm run build
 
+      # enablement: true — включает Pages сам, если он ещё выключен
+      # (не требует ручного действия в Settings → Pages)
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
