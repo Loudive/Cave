@@ -263,8 +263,9 @@ export class CaveScene extends Phaser.Scene {
     this.mask.setPlayer(this.mask.add({
       x: () => this.creature.x,
       y: () => this.creature.y,
-      // Шаг 8: множитель света (Ночное зрение / Светожорное ядро / ген свечения).
-      radius: LIGHT.playerLight.radius * this.sceneMods.lightMult,
+      // Шаг 8: живой множитель света (Ночное зрение / Светожорное ядро / ген свечения).
+      radius: LIGHT.playerLight.radius,
+      radiusMult: () => this.sceneMods.lightMult,
       breathe: true,
     }))
 
@@ -624,7 +625,7 @@ export class CaveScene extends Phaser.Scene {
 
     const overlay = this.add.container(0, 0).setScrollFactor(0).setDepth(40).setAlpha(0)
     const veil = this.add.rectangle(width / 2, height / 2, width, height, 0x0b0b10, 0.82)
-    const title = this.add.text(width / 2, height / 2 - 96, 'ЗАБЕГ ОКОНЧЕН', {
+    const title = this.add.text(width / 2, height / 2 - 138, 'ЗАБЕГ ОКОНЧЕН', {
       fontFamily: 'Georgia, "Times New Roman", serif',
       fontSize: '44px',
       color: '#E23A4E',
@@ -647,14 +648,14 @@ export class CaveScene extends Phaser.Scene {
       `на чём погиб: ${this.vitals.lastDamageCause}`,
     ]
     if (genesLine) lines.push(`постоянные гены: ${genesLine} (переживут смерть)`)
-    const stats = this.add.text(width / 2, height / 2 - 30, lines.join('\n'), {
+    const stats = this.add.text(width / 2, height / 2 - 10, lines.join('\n'), {
       fontFamily: 'monospace',
       fontSize: '15px',
       color: '#E8E6E3',
       align: 'center',
       lineSpacing: 7,
     }).setOrigin(0.5)
-    const hint = this.add.text(width / 2, height / 2 + 108, '— нажми, чтобы вернуться в Гнездо —', {
+    const hint = this.add.text(width / 2, height / 2 + 128, '— нажми, чтобы вернуться в Гнездо —', {
       fontFamily: 'monospace',
       fontSize: '15px',
       color: '#58E6C8',
@@ -1301,6 +1302,14 @@ export class CaveScene extends Phaser.Scene {
     }
   }
 
+  /** Телепорт существа (хук верификации и геномные переходы). */
+  private teleportPlayer(x: number, y: number): void {
+    this.creature.setPosition(x, y)
+    const b = this.creature.body as Phaser.Physics.Arcade.Body
+    b.velocity.set(0)
+    b.blocked.none = true
+  }
+
   /** Состав популяции «вид×N» для debug-оверлея. */
   private ecoPopulation(): string {
     const counts = new Map<string, number>()
@@ -1481,6 +1490,32 @@ export class CaveScene extends Phaser.Scene {
         fireAtPlayer: () => {
           this.fire.spawn(this.creature.x + 12, this.creature.y)
           return this.fire.activeCount
+        },
+        flowers: () => this.flowers.map((f) => ({ x: Math.round(f.x), y: Math.round(f.y), used: f.used })),
+        pools: () => this.genePools.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y), used: p.used })),
+        elites: () => this.enemies.filter((e) => e.elite && !e.dead).map((e) => ({ id: e.speciesId, x: Math.round(e.x), y: Math.round(e.y), hp: e.hp })),
+        genePickups: () => this.genePickups.map((g) => ({ id: g.geneId, x: Math.round(g.img.x) })),
+        genesSave: () => this.geneSave,
+        /** Телепорт к цветку (верификация подбора мутации). */
+        gotoFlower: () => {
+          const f = this.flowers.find((q) => !q.used)
+          if (!f) return null
+          this.teleportPlayer(f.x, f.y - 10)
+          return { x: f.x, y: f.y }
+        },
+        /** Телепорт к ген-лунке (верификация постоянного гена). */
+        gotoPool: () => {
+          const p = this.genePools.find((q) => !q.used)
+          if (!p) return null
+          this.teleportPlayer(p.x, p.y - 10)
+          return { x: p.x, y: p.y }
+        },
+        /** Телепорт к уникальному мобу. */
+        gotoElite: () => {
+          const e = this.enemies.find((q) => q.elite && !q.dead)
+          if (!e) return null
+          this.teleportPlayer(e.x - 40, e.y)
+          return { id: e.speciesId, hp: e.hp }
         },
         /** Выстрел жнеца у игрока (проверка спор без ожидания). */
         sporesAtPlayer: () => {

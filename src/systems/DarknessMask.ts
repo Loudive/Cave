@@ -28,6 +28,8 @@ export interface LightSource {
   scaleNow?: () => number
   /** Дышащий свет существа (лёгкая синусоида от breathePeriodMs). */
   breathe?: boolean
+  /** Шаг 8: живой множитель радиуса (Ночное зрение / Светожорное ядро). */
+  radiusMult?: () => number
 }
 
 export class DarknessMask {
@@ -74,7 +76,7 @@ export class DarknessMask {
   /** Свет игрока — радиус с дыханием; нужен мошки и (позже) ИИ незаметности. */
   playerRadius(time: number): number {
     if (!this.playerLight) return 0
-    let r = this.playerLight.radius
+    let r = this.playerLight.radius * (this.playerLight.radiusMult?.() ?? 1)
     if (this.playerLight.breathe) {
       const cfg = LIGHT.playerLight
       // Сердцебиение (шаг 6): при низком HP/голоду свет дышит чаще и глубже —
