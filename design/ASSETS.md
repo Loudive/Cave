@@ -12,6 +12,7 @@
 | Программная боёвка (шаг 6) | `scripts/generate-assets.mjs` (npm run assets) | свой код | +7 PNG: blood-drop, blood-decal, clot (кровь 3 слоёв), mob-slug, mob-bat (добыча), meat-chunk, mutation-gem | **подключены** |
 | Splash-арт меню (шаг 6) | ai.gptml.ru · Nano Banana Pro, промпт в палитре проекта | свой контент (нейрогенерация) | assets/menu-splash.jpg — титульный экран; «одинокий образ», сильная сторона нейрогенерации (гайд §5) | **подключён** |
 | Программная экосистема (шаг 7) | `scripts/generate-assets.mjs` (npm run assets) | свой код | +7 PNG: mob-reaper (20×26), mob-bloodsucker (22×14), mob-shell (26×18), mob-lava (24×14) — силуэты по гайду («округлые безопаснее, угловатые опаснее»), spore-bolt, fire-patch, ring (кольцо шума 64×64) | **подключены** |
+| Геномы (шаг 8) | переиспользование mutation-gem (tint редкости), glow-purple/glow-red | свой код | Новых PNG нет: кристаллы мутаций красятся rarityColor (6 редкостей), золотые геном-кристаллы и ген-лунки — tint 0xe8a34f; цветки — mutation-gem в кислотном тинте | **подключено** |
 | 0x72 DungeonTileset II | 0x72.itch.io/dungeontileset-ii | CC0 | Тайлы пещер, стены, полы, простые мобы | запланирован (шаг 3–4) |
 | Blood FX / Hit Spark паки | itch.io: free + pixel art + vfx | TBD (читать карточку) | Кровь, брызги, ударные вспышки | запланирован (шаг 9: своя трёхслойная кровь уже в шаге 6) |
 | game-icons.net | game-icons.net | CC BY 3.0 (авторы в титрах) | Иконки генов и навыков древа (4180 SVG) | запланирован (шаг 8, 11) |
