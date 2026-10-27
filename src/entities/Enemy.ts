@@ -80,6 +80,10 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   /** Уникальный моб (шаг 8): крупнее, живучее, несёт постоянный ген. */
   elite = false
   private eliteGlow: Phaser.GameObjects.Image | null = null
+  /** Шаг 9: сцена регистрирует ауру в Glow-реестре после makeElite. */
+  get eliteGlowRef(): Phaser.GameObjects.Image | null {
+    return this.eliteGlow
+  }
   private parasiteDps = 0
   private parasiteUntil = 0
   private parasiteNextTickAt = 0

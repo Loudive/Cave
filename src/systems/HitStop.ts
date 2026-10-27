@@ -15,6 +15,9 @@ export class HitStop {
   private wasFrozen = false
   /** Живые эмиттеры частиц — на них время останавливается timeScale=0. */
   private emitters = new Set<Phaser.GameObjects.Particles.ParticleEmitter>()
+  /** Slow-mo (шаг 9): мир замедлен до slowMoUntil. */
+  private slowMoUntil = -Infinity
+  private wasSlowMo = false
 
   constructor(private scene: Phaser.Scene) {}
 
@@ -34,13 +37,38 @@ export class HitStop {
     return this.scene.time.now < this.frozenUntil
   }
 
-  /** Вызывать из scene.update каждый кадр — разморозка по таймеру. */
+  /**
+   * Slow-mo (шаг 9): мир жив, но течёт в 4 раза медленнее — 0.3 с
+   * величия на убийстве уникального монстра. Физика, твины и частицы
+   * замедляются вместе; хитстоп поверх не конфликтует (freeze сильнее).
+   */
+  slowMo(ms: number): void {
+    this.slowMoUntil = Math.max(this.slowMoUntil, this.scene.time.now + ms)
+    if (!this.wasSlowMo) {
+      this.wasSlowMo = true
+      this.scene.physics.world.timeScale = 4
+      this.scene.tweens.timeScale = 0.25
+      for (const e of this.emitters) e.timeScale = 0.25
+    }
+  }
+
+  /** Вызывать из scene.update каждый кадр — разморозка/возврат скорости. */
   update(): void {
     if (this.wasFrozen && !this.active) {
       this.wasFrozen = false
-      this.scene.physics.world.resume()
+      if (!this.wasSlowMo) {
+        this.scene.physics.world.resume()
+      }
       this.scene.tweens.resumeAll()
+      for (const e of this.emitters) e.timeScale = this.wasSlowMo ? 0.25 : 1
+    }
+    // Возврат из slow-mo.
+    if (this.wasSlowMo && this.scene.time.now >= this.slowMoUntil) {
+      this.wasSlowMo = false
+      this.scene.physics.world.timeScale = 1
+      this.scene.tweens.timeScale = 1
       for (const e of this.emitters) e.timeScale = 1
+      if (!this.active) this.scene.physics.world.resume()
     }
   }
 
@@ -48,6 +76,7 @@ export class HitStop {
   track(emitter: Phaser.GameObjects.Particles.ParticleEmitter): void {
     this.emitters.add(emitter)
     if (this.wasFrozen) emitter.timeScale = 0
+    else if (this.wasSlowMo) emitter.timeScale = 0.25
   }
 
   untrack(emitter: Phaser.GameObjects.Particles.ParticleEmitter): void {

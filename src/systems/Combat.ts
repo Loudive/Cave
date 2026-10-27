@@ -183,6 +183,9 @@ export class Combat {
   /** Причина последнего удара (для экрана итога, шаг 8). */
   lastHitCause = 'пещера'
 
+  /** Шаг 9: тяжёлый урон — сцена включает хроматику. */
+  onHeavyHit: ((damage: number) => void) | null = null
+
   /** Урон игроку: мигание неуязвимости возвращает интервал. */
   hurtPlayer(damage: number, cause = 'пещера'): number {
     const p = BALANCE.player
@@ -192,6 +195,8 @@ export class Combat {
     this.vitals.lastDamageCause = this.lastHitCause
     const applied = this.vitals.damageWithMult(damage)
     if (applied >= 0 && this.vitals.alive) {
+      // Шаг 9: тяжёлый удар (≥12 или до половины HP) — рывок хроматики.
+      if (damage >= 12 || this.vitals.hpRatio < 0.5) this.onHeavyHit?.(damage)
       this.invulnUntil = now + p.invulnAfterHitMs
       this.creature.hurtVisual(p.invulnAfterHitMs)
       this.blood.burst(this.creature.x, this.creature.y, {

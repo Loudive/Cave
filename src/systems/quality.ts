@@ -19,21 +19,29 @@ function initial(): QualityLevel {
 
 let level: QualityLevel = initial()
 
+const changeHandlers: (() => void)[] = []
+
 export const QUALITY = {
   get level(): QualityLevel {
     return level
   },
   set level(v: QualityLevel) {
+    if (level === v) return
     level = v
     try {
       localStorage.setItem(STORAGE_KEY, v)
     } catch {
       /* приватный режим */
     }
+    for (const h of changeHandlers) h()
   },
   toggle(): QualityLevel {
     QUALITY.level = level === 'high' ? 'low' : 'high'
     return level
+  },
+  /** Подписка на смену качества (шаг 9: Vfx пересобирает пост-эффекты). */
+  onChange(handler: () => void): void {
+    changeHandlers.push(handler)
   },
   /** Множитель числа частиц. */
   get particleMult(): number {

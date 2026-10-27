@@ -9,6 +9,7 @@ import { Enemy, type EnemyContext, type KillerKind } from '../entities/Enemy'
 import { Spores } from '../systems/Spores'
 import { FireTrail } from '../systems/FireTrail'
 import { Ecosystem, type NestRecord } from '../systems/Ecosystem'
+import { Vfx } from '../systems/Vfx'
 import { Companion } from '../entities/Companion'
 import { GENES, loadGeneSave, saveGeneSave, grantGene, type GeneSave, type GeneDef } from '../config/genes'
 import { DebugOverlay } from '../systems/DebugOverlay'
@@ -82,6 +83,7 @@ export class CaveScene extends Phaser.Scene {
   private spores!: Spores
   private fire!: FireTrail
   private eco!: Ecosystem
+  private vfx!: Vfx
   // Шаг 8: геномы — постоянные гены, цветки, лунки, уникальные, спутник.
   private geneSave!: GeneSave
   private genesGained: string[] = []
@@ -208,7 +210,20 @@ export class CaveScene extends Phaser.Scene {
       this, this.vitals, this.blood,
       () => ({ x: this.creature.x, y: this.creature.y, facing: this.creature.facing }),
     )
-    this.eating.onChew = () => this.creature.chewVisual()
+    this.eating.onChew = () => {
+      this.creature.chewVisual()
+      // Шаг 9: вспышка поедания у пасти.
+      this.vfx.eatFlash(
+        this.creature.x + this.creature.facing * 10,
+        this.creature.y - 4,
+        0.4,
+      )
+    }
+    this.eating.onCarcassFinished = (x, y) => {
+      // Туша доедена: тёплый всплеск сытости (гайд: «вспышка света при поедании»).
+      this.vfx.eatFlash(x, y, 0.9)
+      this.cameras.main.flash(140, 120, 62, 46)
+    }
 
     this.mutations = new Mutations(this, this.vitals)
     this.mutations.onApply = (def) => this.applyMutation(def)
@@ -235,6 +250,12 @@ export class CaveScene extends Phaser.Scene {
     this.eco = new Ecosystem(this, {
       spawnAtNest: (nest) => this.spawnEnemyAtNest(nest),
     })
+
+    // Шаг 9: juice-слой (вспышки, хроматика, слоу-мо, Glow, искры).
+    this.vfx = new Vfx(this, this.blood, this.hitStop)
+    QUALITY.onChange(() => this.vfx.refreshForQuality())
+
+    this.combat.onHeavyHit = (damage) => this.vfx.chromaticHit(damage >= 20 ? 1.5 : 1)
 
     this.hudBars = new Hud(this, this.vitals, this.mutations, () => this.combat.queueTouchBite())
 
@@ -398,6 +419,7 @@ export class CaveScene extends Phaser.Scene {
         }
       }
 
+      this.vfx.update()
       this.spores.update(time, this.creature.x, this.creature.y, this.vitals.alive, this.enemies)
       this.fire.update(time, this.creature.x, this.creature.y, this.vitals.alive, this.enemies)
       this.eco.update(time)
@@ -527,8 +549,11 @@ export class CaveScene extends Phaser.Scene {
     this.eco.onMobDeath(enemy.nestIndex)
     if (killer === 'player') {
       this.vitals.eatenCount++
-      // Уникальный моб несёт ПОСТОЯННЫЙ ген (шаг 8).
+      // Уникальный моб несёт ПОСТОЯННЫЙ ген (шаг 8) и заслуживает slow-mo (шаг 9).
       if (enemy.elite) {
+        this.vfx.uniqueKillSlowMo()
+        this.vfx.sparks(enemy.x, enemy.y, 18, true)
+        this.blood.explode(enemy.x, enemy.y, 24)
         this.dropGenePickup(enemy.x, enemy.y)
         this.mutations.rollDrop(enemy.x, enemy.y)
       } else {
@@ -802,6 +827,7 @@ export class CaveScene extends Phaser.Scene {
       onSpawnFire: (_enemy, x, y) => this.fire.spawn(x, y),
       onNoise: (enemy, kind) => {
         if (kind === 'eat') this.eco.counters.mobMeals++
+        if (kind === 'curl') this.vfx.sparks(enemy.x, enemy.y, 6)
         this.eco.emitNoise(enemy, kind, this.enemies)
       },
       onDeath: (e, killer) => this.handleEnemyDeath(e, killer),
@@ -864,6 +890,8 @@ export class CaveScene extends Phaser.Scene {
         .setScale(0.75)
         .setBlendMode(Phaser.BlendModes.ADD)
         .setDepth(2)
+      // Шаг 9: Glow-фильтр на биолюминесценции (высокое качество).
+      this.vfx.registerGlow(glow)
       this.mask.add({
         x: () => x,
         y: () => y - 9,
@@ -975,6 +1003,7 @@ export class CaveScene extends Phaser.Scene {
       .setAlpha(0.4)
       .setBlendMode(Phaser.BlendModes.ADD)
       .setDepth(1)
+    this.vfx.registerGlow(gateGlow)
     this.mask.add({
       x: () => x,
       y: () => y,
@@ -1156,6 +1185,7 @@ export class CaveScene extends Phaser.Scene {
       const enemy = this.addEnemyAt(this.pickSpeciesForBiome(nest.biome, rng), wx, wy)
       if (!enemy) continue
       enemy.makeElite()
+      if (enemy.eliteGlowRef) this.vfx.registerGlow(enemy.eliteGlowRef)
       elites++
     }
   }

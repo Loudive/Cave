@@ -147,6 +147,8 @@ export class Eating {
 
   /** Сцена подписывается: сжатие существа на каждом чавканье. */
   onChew: (() => void) | null = null
+  /** Шаг 9: туша доедена подчистую — вспышка сытости в сцене. */
+  onCarcassFinished: ((x: number, y: number) => void) | null = null
 
   /** Вызывать из scene.update, когда мир НЕ заморожен. */
   update(time: number, playerX: number, playerY: number): void {
@@ -243,6 +245,8 @@ export class Eating {
     c.hint.destroy()
 
     if (eaten) {
+      // Шаг 9: сцена подсвечивает доедание (juice поедания).
+      this.onCarcassFinished?.(c.sprite.x, c.sprite.y)
       // Сытый всплеск: тёплая вспышка + последние куски.
       const flash = this.scene.add.image(c.sprite.x, c.sprite.y, 'glow-red')
         .setDepth(DEPTH_SHIMMER)
