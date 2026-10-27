@@ -1,0 +1,21 @@
+{
+  "name": "cave-devourer",
+  "version": "0.1.0",
+  "description": "Cave Devourer — 2D-платформер-роуглайк про монстра в сети тёмных пещер. Phaser 3 + TypeScript + Vite.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "build:local": "vite build --base=/game/",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "phaser": "^3.90.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vite": "^7.1.0"
+  }
+}
