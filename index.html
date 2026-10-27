@@ -30,6 +30,21 @@
   </head>
   <body>
     <div id="app"></div>
+    <script>
+      // Диагностический ватчдог: независимый от Phaser счётчик RAF + ловля ошибок.
+      window.__ERRS__ = [];
+      window.addEventListener('error', function (e) {
+        window.__ERRS__.push('error: ' + e.message + ' @ ' + (e.filename || '') + ':' + e.lineno);
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        window.__ERRS__.push('rejection: ' + String(e.reason));
+      });
+      window.__RAF__ = { n: 0 };
+      (function rafWatch() {
+        window.__RAF__.n++;
+        requestAnimationFrame(rafWatch);
+      })();
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

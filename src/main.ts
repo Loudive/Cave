@@ -29,4 +29,14 @@ const config: Phaser.Types.Core.GameConfig = {
   scene: [BootScene, MenuScene, CaveScene],
 }
 
-export default new Phaser.Game(config)
+const game = new Phaser.Game(config)
+
+// Отладочный хендл: используется агентом для автотестов (agent-browser).
+declare global {
+  interface Window {
+    __GAME__?: Phaser.Game
+  }
+}
+window.__GAME__ = game
+
+export default game

@@ -93,10 +93,12 @@ export class CaveScene extends Phaser.Scene {
 
     // Управление: стрелки + WASD.
     this.cursors = this.input.keyboard!.createCursorKeys()
-    this.wasd = this.input.keyboard!.addKeys('W,A,S,D') as Record<
-      'up' | 'left' | 'down' | 'right',
-      Phaser.Input.Keyboard.Key
-    >
+    this.wasd = this.input.keyboard!.addKeys({
+      up: Phaser.Input.Keyboard.KeyCodes.W,
+      left: Phaser.Input.Keyboard.KeyCodes.A,
+      down: Phaser.Input.Keyboard.KeyCodes.S,
+      right: Phaser.Input.Keyboard.KeyCodes.D,
+    }) as Record<'up' | 'left' | 'down' | 'right', Phaser.Input.Keyboard.Key>
     this.input.keyboard!.on('keydown-ESC', () => {
       this.cameras.main.fadeOut(220, 4, 4, 8)
       this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
