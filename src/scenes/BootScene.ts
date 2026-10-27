@@ -1,113 +1,52 @@
 import Phaser from 'phaser'
+import { ASSETS, assetUrl } from '../config/assets'
 
 /**
- * BootScene — шаг 0.
- * Генерирует программные текстуры (пока нет ассетов) и показывает
- * заглушку preload-бара. Реальная загрузка ассетов появится в шаге 2.
+ * BootScene — шаг 2.
+ * Реальный загрузчик ассетов: файлы из assets/ (манифест src/config/assets.ts),
+ * событийный preload-бар на progress/complete загрузчика Phaser.
+ * Программных текстур больше нет — всё приходит файлами (детерминированная
+ * генерация: scripts/generate-assets.mjs, npm run assets).
  */
 export class BootScene extends Phaser.Scene {
   constructor() {
     super('Boot')
   }
 
+  preload(): void {
+    this.showPreloadBar()
+
+    this.load.on(Phaser.Loader.Events.PROGRESS, (value: number) => {
+      this.events.emit('boot:progress', value)
+    })
+
+    for (const { key, file } of ASSETS) {
+      this.load.image(key, assetUrl(file))
+    }
+  }
+
   create(): void {
-    this.createTextures()
-    this.showFakeLoading()
+    this.events.emit('boot:progress', 1)
+    this.cameras.main.fadeOut(220, 4, 4, 8)
+    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+      this.scene.start('Menu')
+    })
   }
 
-  private createTextures(): void {
-    this.createGlowTexture('glow-cyan', 0x58e6c8)
-    this.createGlowTexture('glow-purple', 0xb36bff)
-    this.createGlowTexture('glow-red', 0xe23a4e)
-    this.createPlayerTexture()
-    this.createRockTexture()
-    this.createVignetteTexture()
-  }
-
-  /** Мягкий радиальный градиент — источник биолюминесцентного света. */
-  private createGlowTexture(key: string, color: number): void {
-    if (this.textures.exists(key)) return
-
-    const size = 128
-    const canvas = this.textures.createCanvas(key, size, size)
-    if (!canvas) return
-    const ctx = canvas.getContext()
-    const c = Phaser.Display.Color.IntegerToColor(color)
-    const rgb = `${c.red},${c.green},${c.blue}`
-
-    const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2)
-    grad.addColorStop(0, `rgba(${rgb},1)`)
-    grad.addColorStop(0.25, `rgba(${rgb},0.55)`)
-    grad.addColorStop(0.6, `rgba(${rgb},0.14)`)
-    grad.addColorStop(1, `rgba(${rgb},0)`)
-
-    ctx.fillStyle = grad
-    ctx.fillRect(0, 0, size, size)
-    canvas.refresh()
-  }
-
-  /** Игрок-плейсхолдер: светящийся прямоугольник (геймпад-фил важнее графики). */
-  private createPlayerTexture(): void {
-    if (this.textures.exists('player')) return
-
-    const g = this.add.graphics()
-    g.fillStyle(0x58e6c8, 1)
-    g.fillRoundedRect(0, 0, 28, 28, 6)
-    g.fillStyle(0x0b0b10, 1)
-    g.fillRoundedRect(9, 9, 10, 10, 3)
-    g.generateTexture('player', 28, 28)
-    g.destroy()
-  }
-
-  /** Камень-плейсхолдер для декора пола пещеры. */
-  private createRockTexture(): void {
-    if (this.textures.exists('rock')) return
-
-    const g = this.add.graphics()
-    g.fillStyle(0x1a1a26, 1)
-    g.fillRoundedRect(0, 0, 96, 64, 12)
-    g.fillStyle(0x2a2a3a, 1)
-    g.fillRoundedRect(10, 10, 76, 44, 9)
-    g.generateTexture('rock', 96, 64)
-    g.destroy()
-  }
-
-  /** Виньетка: тёмные края кадра — ощущение тоннеля. */
-  private createVignetteTexture(): void {
-    if (this.textures.exists('vignette')) return
-
-    const size = 512
-    const canvas = this.textures.createCanvas('vignette', size, size)
-    if (!canvas) return
-    const ctx = canvas.getContext()
-
-    const grad = ctx.createRadialGradient(
-      size / 2, size / 2, size * 0.22,
-      size / 2, size / 2, size * 0.52,
-    )
-    grad.addColorStop(0, 'rgba(4,4,8,0)')
-    grad.addColorStop(0.7, 'rgba(4,4,8,0.45)')
-    grad.addColorStop(1, 'rgba(4,4,8,0.92)')
-
-    ctx.fillStyle = grad
-    ctx.fillRect(0, 0, size, size)
-    canvas.refresh()
-  }
-
-  /** Короткий имитационный прогресс — на шаге 2 заменяется настоящей загрузкой. */
-  private showFakeLoading(): void {
+  /** Настоящий прогресс-бар: подписан на события загрузчика. */
+  private showPreloadBar(): void {
     const { width, height } = this.scale
     const cx = width / 2
     const cy = height / 2
 
-    this.add.text(cx, cy - 34, 'CAVE DEVOURER', {
+    this.add.text(cx, cy - 40, 'CAVE DEVOURER', {
       fontFamily: 'Georgia, "Times New Roman", serif',
       fontSize: '30px',
       color: '#E23A4E',
       fontStyle: 'bold',
     }).setOrigin(0.5)
 
-    this.add.text(cx, cy - 4, 'пробуждаемся в темноте…', {
+    const status = this.add.text(cx, cy - 10, 'пробуждаемся в темноте…', {
       fontFamily: 'monospace',
       fontSize: '13px',
       color: '#8A8894',
@@ -116,23 +55,17 @@ export class BootScene extends Phaser.Scene {
     const barW = 260
     const barH = 8
     this.add.rectangle(cx, cy + 30, barW, barH, 0x1a1a26).setStrokeStyle(1, 0x2a2a3a)
-    const fill = this.add.rectangle(cx - barW / 2 + 2, cy + 30, 0, barH - 4, 0x58e6c8).setOrigin(0, 0.5)
+    const fill = this.add.rectangle(cx - barW / 2 + 2, cy + 30, 0, barH - 4, 0x58e6c8)
+      .setOrigin(0, 0.5)
 
-    this.tweens.addCounter({
-      from: 0,
-      to: 100,
-      duration: 900,
-      ease: 'Sine.InOut',
-      onUpdate: (t) => {
-        const v = t.getValue() as number
-        fill.width = ((barW - 4) * v) / 100
-      },
-      onComplete: () => {
-        this.cameras.main.fadeOut(220, 4, 4, 8)
-        this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
-          this.scene.start('Menu')
-        })
-      },
+    const onProgress = (value: number): void => {
+      fill.width = ((barW - 4) * Phaser.Math.Clamp(value, 0, 1))
+      status.setText(`пробуждаемся в темноте… ${Math.round(value * 100)}%`)
+    }
+    this.events.on('boot:progress', onProgress)
+
+    this.load.once(Phaser.Loader.Events.COMPLETE, () => {
+      status.setText('темнота готова')
     })
   }
 }

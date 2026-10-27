@@ -52,7 +52,7 @@ export class MenuScene extends Phaser.Scene {
       ease: 'Sine.InOut',
     })
 
-    this.add.text(cx, height - 28, 'шаг 0 — каркас · Phaser 3 + TypeScript + Vite', {
+    this.add.text(cx, height - 28, 'шаг 2 — скелет и загрузчик ассетов · Phaser 3 + TypeScript + Vite', {
       fontFamily: 'monospace',
       fontSize: '12px',
       color: '#8A8894',

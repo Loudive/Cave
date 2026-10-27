@@ -1,8 +1,9 @@
 import Phaser from 'phaser'
 
 /**
- * CaveScene — шаг 0, пустая сцена пещеры.
+ * CaveScene — шаг 2, пустая сцена пещеры.
  * Играбельный плейсхолдер: светящийся прямоугольник в темноте с грибами.
+ * Спрайты приходят из загрузчика BootScene (assets/, шаг 2).
  * Настоящий контроллер (coyote time, wall jump, планирование) — шаг 3.
  */
 export class CaveScene extends Phaser.Scene {
@@ -40,28 +41,40 @@ export class CaveScene extends Phaser.Scene {
       rock.setTint(Phaser.Math.Between(0, 1) > 0.5 ? 0xffffff : 0xd8d8e8)
     }
 
-    // Биолюминесцентные грибы: пульсируют и слегка дышат.
+    // Биолюминесцентные грибы: спрайт + пульсирующее свечение под ним.
     for (let i = 0; i < 12; i++) {
-      const texture = i % 3 === 0 ? 'glow-purple' : 'glow-cyan'
-      const mushroom = this.add.image(
-        Phaser.Math.Between(80, 1840),
-        Phaser.Math.Between(80, 1000),
-        texture,
-      )
-        .setAlpha(Phaser.Math.FloatBetween(0.35, 0.7))
-        .setScale(Phaser.Math.FloatBetween(0.25, 0.7))
+      const mx = Phaser.Math.Between(80, 1840)
+      const my = Phaser.Math.Between(80, 1000)
+      const glowColor = i % 3 === 0 ? 'glow-purple' : 'glow-cyan'
+
+      const glow = this.add.image(mx, my, glowColor)
+        .setAlpha(Phaser.Math.FloatBetween(0.3, 0.55))
+        .setScale(Phaser.Math.FloatBetween(0.5, 1.1))
         .setBlendMode(Phaser.BlendModes.ADD)
         .setDepth(1)
 
+      const mushroom = this.add.image(mx, my, 'mushroom')
+        .setScale(Phaser.Math.FloatBetween(1.4, 2.6))
+        .setDepth(2)
+
       this.tweens.add({
-        targets: mushroom,
-        alpha: { from: mushroom.alpha * 0.35, to: Math.min(1, mushroom.alpha * 1.4) },
-        scale: { from: mushroom.scale, to: mushroom.scale * 1.18 },
+        targets: glow,
+        alpha: { from: glow.alpha * 0.4, to: Math.min(1, glow.alpha * 1.5) },
+        scale: { from: glow.scale, to: glow.scale * 1.22 },
         duration: Phaser.Math.Between(1800, 3600),
         yoyo: true,
         repeat: -1,
         ease: 'Sine.InOut',
         delay: Phaser.Math.Between(0, 1500),
+      })
+      this.tweens.add({
+        targets: mushroom,
+        scaleY: { from: mushroom.scaleY, to: mushroom.scaleY * 0.94 },
+        duration: Phaser.Math.Between(2200, 4200),
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.InOut',
+        delay: Phaser.Math.Between(0, 1200),
       })
     }
 
@@ -113,7 +126,7 @@ export class CaveScene extends Phaser.Scene {
       .setDepth(10)
 
     this.add.text(16, height - 14,
-      'WASD / стрелки — движение · ESC — меню · шаг 0: пустая пещера',
+      'WASD / стрелки — движение · ESC — меню · шаг 2: скелет и загрузчик ассетов',
       { fontFamily: 'monospace', fontSize: '12px', color: '#8A8894' },
     )
       .setScrollFactor(0)

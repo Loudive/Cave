@@ -6,8 +6,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
-    "build:local": "vite build --base=/game/",
+    "assets": "node scripts/generate-assets.mjs",
+    "build": "npm run assets && tsc --noEmit && vite build",
+    "build:local": "npm run assets && vite build --base=/game/",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
   },
