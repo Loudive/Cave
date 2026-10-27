@@ -49,15 +49,20 @@ export class Mutations {
     return this.owned.length
   }
 
+  /** Слоты мутаций (шаг 8): 6 базовых + геном-гнездо; ставит сцена. */
+  slots = BALANCE.mutations.maxOwned
+
   /**
    * Бросок на выпадение из туши. Шанс 25%; если повезло — кристалл
    * вырастает из туши (пул без повторов; пусто — кристалл не вырастет).
    */
   rollDrop(x: number, y: number): void {
     if (Math.random() >= BALANCE.mutations.dropChance) return
-    // Потолок: подобранное + невыбранные кристаллы не превышают слоты.
-    if (this.owned.length + this.gems.length >= BALANCE.mutations.maxOwned) return
-    const left = MUTATIONS.pool.filter((m) => !this.owned.some((o) => o.id === m.id))
+    // Потолок: подобранное + невыбранные кристаллы не превышают слоты
+    // (шаг 8: слоты = 6 базовых + геном-гнездо).
+    if (this.owned.length + this.gems.length >= this.slots) return
+    // Легендарные в общем пуле не выпадают (только с уникальных — шаг 8).
+    const left = MUTATIONS.pool.filter((m) => m.rarity !== 'legendary' && !this.owned.some((o) => o.id === m.id))
     if (left.length === 0) return
 
     const total = left.reduce((s, m) => s + m.weight, 0)
@@ -214,6 +219,26 @@ export class Mutations {
         break
       case 'secondHeart':
         this.vitals.hasSecondHeart = true
+        break
+      // ── Шаг 8: расширенный пул геномов ──
+      case 'gluttonMaw':
+        this.vitals.digestMult *= e.digestMult
+        this.vitals.appetiteBonus += e.appetiteMult
+        break
+      case 'bonePlate':
+        this.vitals.damageTakenMult *= e.mult
+        break
+      case 'lightHungerCore':
+        this.vitals.biteDamageMult *= e.dmgMult
+        break
+      case 'hungryVeins':
+        this.vitals.hungerDrainMult = e.hungerMult
+        this.vitals.biteDamageMult *= e.dmgMult
+        break
+      case 'transparentSkin':
+        this.vitals.applyHpPct(e.hpPct)
+        break
+      default:
         break
     }
   }

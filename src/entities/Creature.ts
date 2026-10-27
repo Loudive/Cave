@@ -49,6 +49,13 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
   /** Споровая пыль (шаг 7): до этого времени бег замедлен (BALANCE.spore). */
   public slowUntil = 0
 
+  /** Шаг 8 «Кровавый напор»: множитель скорости бега до этого времени. */
+  public speedBuffUntil = 0
+  public speedBuffMult = 1
+
+  /** Шаг 8 «Споровый вдох»: сцена помечает зоны Грибных полян. */
+  public sporeBreathZone = false
+
   /** Последнее горизонтальное направление взгляда (1 правый, −1 левый). */
   private facingDir: 1 | -1 = 1
 
@@ -172,9 +179,11 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
     // Споровая пыль (шаг 7): и разгон, и потолок скорости режутся.
     const slowed = this.scene.time.now < this.slowUntil
     const slowK = slowed ? 1 - BALANCE.spore.slowFactor : 1
+    // «Кровавый напор» (шаг 8): временный множитель скорости.
+    const rush = this.scene.time.now < this.speedBuffUntil ? this.speedBuffMult : 1
 
     if (dir !== 0) {
-      body.velocity.x = moveToward(body.velocity.x, dir * cfg.runMaxSpeed * slowK, accel * slowK * dt)
+      body.velocity.x = moveToward(body.velocity.x, dir * cfg.runMaxSpeed * slowK * rush, accel * slowK * dt)
     } else {
       // Трение: к нулю за счёт runFriction (в воздухе — слабее, airControl).
       const fr = (inAir ? cfg.runFriction * cfg.airControl : cfg.runFriction) * dt
@@ -183,6 +192,11 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
   }
 
   private jumpLogic(body: Phaser.Physics.Arcade.Body, now: number): void {
+    // «Споровый вдох» (шаг 8): на Грибных полянах заряд воздушного
+    // прыжка восстанавливается, пока стоишь на земле.
+    if (this.sporeBreathZone && body.blocked.down && this.mods.airJumps > 0) {
+      this.airJumpsLeft = this.mods.airJumps
+    }
     const jump = MOVEMENT.jump
     const wall = MOVEMENT.wall
     const canGround = now - this.lastOnFloorAt <= jump.coyoteTime

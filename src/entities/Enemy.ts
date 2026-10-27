@@ -77,6 +77,12 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   dead = false
   /** Индекс гнезда, у которого заспавнен (для восстановления экосистемы). */
   nestIndex = -1
+  /** Уникальный моб (шаг 8): крупнее, живучее, несёт постоянный ген. */
+  elite = false
+  private eliteGlow: Phaser.GameObjects.Image | null = null
+  private parasiteDps = 0
+  private parasiteUntil = 0
+  private parasiteNextTickAt = 0
 
   /** Силуэт вне света (двойник над маской). */
   readonly twin: Phaser.GameObjects.Image
@@ -205,6 +211,39 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.hp = Math.max(1, Math.round(this.maxHp * ratio))
   }
 
+  /**
+   * Сделать моба УНИКАЛЬНЫМ (шаг 8): ×3 живучести, крупнее, споровая
+   * аура. Из него падает постоянный ген — то, ради чего рискуют.
+   */
+  makeElite(): void {
+    this.elite = true
+    this.maxHp = Math.round(this.maxHp * 3)
+    this.hp = this.maxHp
+    this.setScale(this.scaleX * 1.35, this.scaleY * 1.35)
+    this.eliteGlow = this.scene.add.image(this.x, this.y, 'glow-purple')
+      .setDepth(DEPTH_ENEMY - 1)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setAlpha(0.3)
+      .setScale(1.4)
+    this.scene.tweens.add({
+      targets: this.eliteGlow,
+      alpha: { from: 0.18, to: 0.4 },
+      scale: { from: 1.2, to: 1.6 },
+      duration: 1400,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.InOut',
+    })
+  }
+
+  /** «Паразитная слюна» (шаг 8): укушенный истекает кровью. */
+  applyParasite(dps: number, durationMs: number): void {
+    if (this.dead) return
+    this.parasiteDps = dps
+    this.parasiteUntil = this.scene.time.now + durationMs
+    this.parasiteNextTickAt = this.scene.time.now + 1000
+  }
+
   // ── Главная точка входа: вызывается из scene.update, когда мир не заморожен
 
   override update(time: number, delta: number, ctx: EnemyContext): void {
@@ -225,6 +264,16 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     // Огненный след лавового ползуна.
     if (this.species.trail) this.updateTrail(now)
+
+    // «Паразитная слюна» (шаг 8): кровотечение тикает раз в секунду.
+    if (this.parasiteDps > 0 && now < this.parasiteUntil) {
+      if (now >= this.parasiteNextTickAt) {
+        this.parasiteNextTickAt = now + 1000
+        this.takeDamage(this.parasiteDps, 0, 0, 'physical', 'player')
+      }
+    } else if (this.parasiteDps > 0) {
+      this.parasiteDps = 0
+    }
 
     // Взмахи крыльев: читаемый ритм полёта (нетопырь).
     if (this.species.fly) {
@@ -1156,6 +1205,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.twin.setPosition(this.x, this.y)
     this.twin.setFlipX(this.flipX)
     this.twin.setScale(this.scaleX, this.scaleY)
+    if (this.eliteGlow) this.eliteGlow.setPosition(this.x, this.y)
   }
 
   /** Обновить видимость силуэта (сцена знает радиус света). */
@@ -1199,6 +1249,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.twin?.destroy()
     this.windupFx?.destroy()
     this.drainBeamGfx?.destroy()
+    this.eliteGlow?.destroy()
     super.destroy(fromScene)
   }
 }

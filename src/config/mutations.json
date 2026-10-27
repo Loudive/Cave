@@ -1,26 +1,47 @@
 {
-  "_doc": "Шаг 6 — забеговые мутации (записи-данные по духу шага 8). Выпадают из туш с шансом 25% (balance.json). weight — вес в взвешенном пуле; effect.type — хук в коде, payload — параметры эффекта. Редкости по GDD: обычный/необычный/редкий/эпический; легендарные — с уникальных мобов (шаг 7+). Проклятия — шаг 8.",
+  "_doc": {
+    "readme": "Шаг 8 — геномы: 20 забеговых мутаций с шестью редкостями (гайд, глава 6). weight — вес в взвешенном пуле выпадения; effect.type — хук в коде, payload — параметры. Легендарные в общий пул НЕ попадают (только с уникальных мобов); проклятия выпадают редко, сильны, и их нельзя выбросить (шаг 11: стабилизация веткой «Гены»).",
+    "rarityColors": "Цвета редкостей (палитра игры): обычный — тёплый серый, необычный — кислота, редкий — биолюм-циан, эпический — споровый фиолет, легендарный — золото мяса, проклятие — глубокий багровый.",
+    "drop": "Выпадение: забеговые — с туш обычных мобов (шанс 25% из balance.json) и с мутагенных цветков в пещерах; легендарные — только с уникальных мобов (элитных, шаг 8). Постоянные гены — см. genes.json (только уникальные мобы и ген-лунки)."
+  },
   "rarityColors": {
-    "_doc": "Цвета редкостей в UI (палитра игры): обычный — тёплый серый, необычный — кислота, редкий — биолюм-циан, эпический — споровый фиолет («споровый фиолет — редкие геномы»).",
     "common": "#9a9aa8",
     "uncommon": "#a8e34f",
     "rare": "#58e6c8",
-    "epic": "#b36bff"
+    "epic": "#b36bff",
+    "legendary": "#e8a34f",
+    "curse": "#8a1e2d"
   },
   "pool": [
     {
       "id": "sticky-blood",
       "name": "Липкая кровь",
       "rarity": "common",
-      "weight": 42,
+      "weight": 40,
       "desc": "+20% сцепления: скольжение по стенам медленнее",
       "effect": { "type": "grip", "wallSlideMult": 0.8 }
+    },
+    {
+      "id": "spore-breath",
+      "name": "Споровый вдох",
+      "rarity": "common",
+      "weight": 40,
+      "desc": "На Грибных полянах воздушный прыжок восстанавливается",
+      "effect": { "type": "sporeBreath" }
+    },
+    {
+      "id": "glutton-maw",
+      "name": "Чрево-пасть",
+      "rarity": "common",
+      "weight": 40,
+      "desc": "Еда даёт +30% сытости, но аппетит +15%",
+      "effect": { "type": "gluttonMaw", "digestMult": 1.3, "appetiteMult": 0.15 }
     },
     {
       "id": "rich-blood",
       "name": "Жирная кровь",
       "rarity": "common",
-      "weight": 42,
+      "weight": 34,
       "desc": "Еда даёт +25% голода и роста (Переваривание)",
       "effect": { "type": "digestion", "mult": 1.25 }
     },
@@ -28,39 +49,79 @@
       "id": "acid-glands",
       "name": "Кислотные железы",
       "rarity": "uncommon",
-      "weight": 24,
+      "weight": 22,
       "desc": "Укус становится кислотным: пробивает панцири (бронепанцирь), урон +25%",
       "effect": { "type": "biteDamage", "mult": 1.25, "acid": true }
     },
     {
-      "id": "clot-jumper",
-      "name": "Сгусток-прыгун",
-      "rarity": "rare",
-      "weight": 16,
-      "desc": "Двойной прыжок: второй толчок — на кровавой пружине",
-      "effect": { "type": "doubleJump", "airJumps": 1 }
+      "id": "echo-chamber",
+      "name": "Эхо-камера",
+      "rarity": "uncommon",
+      "weight": 22,
+      "desc": "Раз в 10 секунд эхо-пульс подсвечивает живое сквозь стены",
+      "effect": { "type": "echoPulse" }
+    },
+    {
+      "id": "blood-rush",
+      "name": "Кровавый напор",
+      "rarity": "uncommon",
+      "weight": 22,
+      "desc": "После съеденной туши — +20% скорости бега на 5 секунд",
+      "effect": { "type": "bloodRush", "speedMult": 1.2, "boostMs": 5000 }
+    },
+    {
+      "id": "parasite-saliva",
+      "name": "Паразитная слюна",
+      "rarity": "uncommon",
+      "weight": 22,
+      "desc": "Укушенные мобы истекают кровью: 2 урона/с в течение 4 секунд",
+      "effect": { "type": "parasiteSaliva", "dps": 2, "durationMs": 4000 }
     },
     {
       "id": "toxic-skin",
       "name": "Токсичная шкура",
       "rarity": "rare",
-      "weight": 16,
+      "weight": 14,
       "desc": "Каждый, кто укусил тебя, получает 6 урона",
       "effect": { "type": "thorns", "damage": 6 }
+    },
+    {
+      "id": "clot-jumper",
+      "name": "Сгусток-прыгун",
+      "rarity": "rare",
+      "weight": 14,
+      "desc": "Двойной прыжок: второй толчок — на кровавой пружине",
+      "effect": { "type": "doubleJump", "airJumps": 1 }
     },
     {
       "id": "chameleon-film",
       "name": "Хамелеонская плёнка",
       "rarity": "rare",
-      "weight": 16,
+      "weight": 14,
       "desc": "Мобы замечают тебя в 2 раза позже",
       "effect": { "type": "stealth", "detectMult": 0.5 }
+    },
+    {
+      "id": "bone-plate",
+      "name": "Костяная броня",
+      "rarity": "rare",
+      "weight": 14,
+      "desc": "Получаемый урон снижен на 20%",
+      "effect": { "type": "bonePlate", "mult": 0.8 }
+    },
+    {
+      "id": "night-vision",
+      "name": "Ночное зрение",
+      "rarity": "rare",
+      "weight": 14,
+      "desc": "Радиус твоего света +25%",
+      "effect": { "type": "nightVision", "lightMult": 1.25 }
     },
     {
       "id": "electro-organs",
       "name": "Электроорганы",
       "rarity": "epic",
-      "weight": 10,
+      "weight": 9,
       "desc": "Укус парализует цель на 1 секунду",
       "effect": { "type": "stunBite", "stunMs": 1000 }
     },
@@ -68,9 +129,49 @@
       "id": "second-heart",
       "name": "Второе сердце",
       "rarity": "epic",
-      "weight": 10,
+      "weight": 9,
       "desc": "Раз за забег смертельный урон оставляет 1 HP",
       "effect": { "type": "secondHeart" }
+    },
+    {
+      "id": "spike-mane",
+      "name": "Грива шипов",
+      "rarity": "epic",
+      "weight": 9,
+      "desc": "Падение сверху жалит: урон всем, на кого падаешь",
+      "effect": { "type": "spikeMane", "damageMult": 0.8 }
+    },
+    {
+      "id": "light-hunger-core",
+      "name": "Светожорное ядро",
+      "rarity": "legendary",
+      "weight": 0,
+      "desc": "Твой свет почти гаснет, но весь урон умножается на 3",
+      "effect": { "type": "lightHungerCore", "lightMult": 0.45, "dmgMult": 3 }
+    },
+    {
+      "id": "mother-crown",
+      "name": "Корона Матки",
+      "rarity": "legendary",
+      "weight": 0,
+      "desc": "Следующий побеждённый мелкий моб станет твоим спутником",
+      "effect": { "type": "motherCrown" }
+    },
+    {
+      "id": "curse-hungry-veins",
+      "name": "Проклятие Голодных жил",
+      "rarity": "curse",
+      "weight": 6,
+      "desc": "Голод тает вдвое быстрее, но весь урон +50%. Нельзя выбросить",
+      "effect": { "type": "hungryVeins", "hungerMult": 2, "dmgMult": 1.5 }
+    },
+    {
+      "id": "curse-transparent-skin",
+      "name": "Проклятие Прозрачной кожи",
+      "rarity": "curse",
+      "weight": 6,
+      "desc": "Маскировка ещё вдвое сильнее, но максимум HP — 70%. Нельзя выбросить",
+      "effect": { "type": "transparentSkin", "detectMult": 0.5, "hpPct": 0.7 }
     }
   ]
 }

@@ -147,21 +147,35 @@ export class Hud {
 
     this.levelText.setText(`РОСТ ${v.level} · съедено ${v.eatenCount}`)
 
-    // Иконки мутаций — кристаллы в цвет редкости.
+    // Слоты мутаций (шаг 8): 6 рамок (+гнездо от постоянного гена).
+    // Занятые — кристалл в цвет редкости (проклятия — багровая рамка),
+    // пустые — тусклый контур: видно, сколько места осталось.
     const owned = this.mutations.ownedList
+    const slots = this.mutations.slots
+    const slotY = xpY + 14
+    g.lineStyle(1, 0x2a2a3a, 1)
+    for (let i = 0; i < slots; i++) {
+      const x = BAR_X + 6 + i * 18
+      g.fillStyle(0x0b0b10, 0.6)
+      g.fillRect(x - 7, slotY - 9, 14, 18)
+      g.strokeRect(x - 7.5, slotY - 9.5, 15, 19)
+    }
+    // Кристаллы поверх рамок.
     while (this.mutationIcons.length < owned.length) {
-      const i = this.mutationIcons.length
-      const def = owned[i]
-      const icon = this.scene.add.image(BAR_X + 6 + i * 18, xpY + 14, 'mutation-gem')
+      const icon = this.scene.add.image(0, 0, 'mutation-gem')
         .setScrollFactor(0)
         .setDepth(DEPTH_HUD)
-        .setTint(rarityColor(def.rarity))
         .setScale(0.9)
       this.mutationIcons.push(icon)
     }
     this.mutationIcons.forEach((icon, i) => {
-      icon.setVisible(i < owned.length)
-      if (i < owned.length) icon.setTint(rarityColor(owned[i].rarity))
+      const show = i < owned.length
+      icon.setVisible(show)
+      if (show) {
+        const def = owned[i]
+        icon.setPosition(BAR_X + 6 + i * 18, slotY).setTint(rarityColor(def.rarity))
+        icon.setScale(def.rarity === 'curse' ? 0.8 : 0.9)
+      }
     })
   }
 

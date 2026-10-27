@@ -22,6 +22,8 @@ export interface CombatMods {
   stunMs: number
   /** Отражение урона атакующему («Токсичная шкура»). */
   thorns: number
+  /** «Паразитная слюна» (шаг 8): укушенные истекают кровью. */
+  parasite: { dps: number; durationMs: number } | null
 }
 
 export class Combat {
@@ -33,7 +35,7 @@ export class Combat {
   private keyJustPressed = false
 
   /** Модификаторы мутаций (ставит сцена при подборе). */
-  mods: CombatMods = { stunMs: 0, thorns: 0 }
+  mods: CombatMods = { stunMs: 0, thorns: 0, parasite: null }
 
   constructor(
     private scene: Phaser.Scene,
@@ -136,6 +138,10 @@ export class Combat {
 
       this.hitSet.add(enemy)
       this.applyHit(enemy)
+      // «Паразитная слюна» (шаг 8): укушенный истекает кровью.
+      if (this.mods.parasite) {
+        enemy.applyParasite(this.mods.parasite.dps, this.mods.parasite.durationMs)
+      }
     }
   }
 
@@ -174,12 +180,17 @@ export class Combat {
     cam.shake(ms, px / cam.width)
   }
 
+  /** Причина последнего удара (для экрана итога, шаг 8). */
+  lastHitCause = 'пещера'
+
   /** Урон игроку: мигание неуязвимости возвращает интервал. */
-  hurtPlayer(damage: number): number {
+  hurtPlayer(damage: number, cause = 'пещера'): number {
     const p = BALANCE.player
     const now = this.scene.time.now
+    this.lastHitCause = cause
     if (now < this.invulnUntil) return 0
-    const applied = this.vitals.damage(damage)
+    this.vitals.lastDamageCause = this.lastHitCause
+    const applied = this.vitals.damageWithMult(damage)
     if (applied >= 0 && this.vitals.alive) {
       this.invulnUntil = now + p.invulnAfterHitMs
       this.creature.hurtVisual(p.invulnAfterHitMs)
@@ -214,9 +225,10 @@ export class Combat {
   // но уважают смерть и «Второе сердце» в Vitals.
 
   /** Пиявка кровососа: малые порции без отброса и хитстопа. */
-  hurtPlayerDrain(amount: number): number {
+  hurtPlayerDrain(amount: number, cause = 'кровосос'): number {
     if (!this.vitals.alive) return 0
-    const applied = this.vitals.damage(amount)
+    this.vitals.lastDamageCause = cause
+    const applied = this.vitals.damageWithMult(amount)
     if (applied > 0) {
       this.blood.number(this.creature.x + Phaser.Math.Between(-8, 8), this.creature.y - 26, `−${Math.round(applied)}`, '#E23A4E')
     }
@@ -224,9 +236,10 @@ export class Combat {
   }
 
   /** Огонь лавового следа: тикает по tickMs, пока цель в луже. */
-  hurtPlayerFire(amount: number): number {
+  hurtPlayerFire(amount: number, cause = 'огненный след'): number {
     if (!this.vitals.alive) return 0
-    const applied = this.vitals.damage(amount)
+    this.vitals.lastDamageCause = cause
+    const applied = this.vitals.damageWithMult(amount)
     if (applied > 0) {
       this.blood.number(this.creature.x + Phaser.Math.Between(-10, 10), this.creature.y - 24, `−${Math.round(applied)}`, '#E2763A')
       this.creature.hurtVisual(240)
@@ -235,11 +248,12 @@ export class Combat {
   }
 
   /** Спора жнеца: снаряд — как урон по игроку, с неуязвимостью и juice. */
-  hurtPlayerSpore(damage: number): number {
+  hurtPlayerSpore(damage: number, cause = 'споры жнеца'): number {
     if (!this.vitals.alive) return 0
     const now = this.scene.time.now
     if (now < this.invulnUntil) return 0
-    const applied = this.vitals.damage(damage)
+    this.vitals.lastDamageCause = cause
+    const applied = this.vitals.damageWithMult(damage)
     if (applied >= 0 && this.vitals.alive) {
       this.invulnUntil = now + BALANCE.player.invulnAfterHitMs
       this.creature.hurtVisual(BALANCE.player.invulnAfterHitMs)

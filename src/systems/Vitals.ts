@@ -20,12 +20,27 @@ export class Vitals {
   level = 1
   alive = true
 
-  /** Модификаторы мутаций. */
+  /** Модификаторы мутаций (шаг 8: множители копятся). */
   biteDamageMult = 1
   digestMult = 1
   hasSecondHeart = false
   /** «Кислотные железы» (шаг 7): укус — кислотный, пробивает панцири. */
   biteAcid = false
+  /** Шаг 8: «Костяная броня» — получаемый урон умножается на это. */
+  damageTakenMult = 1
+  /** Шаг 8: «Проклятие Голодных жил» — голод тает быстрее. */
+  hungerDrainMult = 1
+  /** Шаг 8: «Чрево-пасть» — прибавка к аппетиту (цена сытости). */
+  appetiteBonus = 0
+  /** Постоянные гены (шаг 8): прибавки к характеристикам. */
+  geneMaxHpBonus = 0
+  geneBiteBonus = 0
+  geneHungerMaxBonus = 0
+  geneDigestMult = 1
+  /** Сколько слотов мутаций (6 базовых + геном-гнездо). */
+  mutationSlots = BALANCE.mutations.maxOwned
+  /** Последняя причина урона (экран итога забега, шаг 8). */
+  lastDamageCause = 'пещера'
 
   /** Счётчики забега (для экрана смерти). */
   eatenCount = 0
@@ -55,13 +70,13 @@ export class Vitals {
 
   get biteDamage(): number {
     const g = BALANCE.growth
-    return Math.round((BALANCE.player.biteDamage + (this.level - 1) * g.bitePerLevel) * this.biteDamageMult)
+    return Math.round((BALANCE.player.biteDamage + this.geneBiteBonus + (this.level - 1) * g.bitePerLevel) * this.biteDamageMult)
   }
 
   /** Голод тает быстрее с уровнем (аппетит). */
   get appetiteMult(): number {
     const g = BALANCE.growth
-    return 1 + (this.level - 1) * g.appetitePerLevel
+    return 1 + (this.level - 1) * g.appetitePerLevel + this.appetiteBonus
   }
 
   get hungerRatio(): number {
@@ -89,9 +104,10 @@ export class Vitals {
     if (!this.alive) return
     const h = BALANCE.hunger
 
-    // Голод тикает каждые tickMs — аккуратно по dt (независимо от fps).
+    // Голод тикает каждые tickMs — аккуратно по dt (независимо от fps);
+    // проклятие «Голодных жил» разгоняет таяние (шаг 8).
     if (this.hunger > 0) {
-      this.hungerAcc += dtMs * this.appetiteMult
+      this.hungerAcc += dtMs * this.appetiteMult * this.hungerDrainMult
       while (this.hungerAcc >= h.tickMs && this.hunger > 0) {
         this.hungerAcc -= h.tickMs
         this.hunger = Math.max(0, this.hunger - h.drainPerTick)
@@ -103,6 +119,7 @@ export class Vitals {
       this.starveAcc += dtMs
       while (this.starveAcc >= h.starveTickMs) {
         this.starveAcc -= h.starveTickMs
+        this.lastDamageCause = 'голод'
         this.damage(h.starveDamage)
       }
     }
@@ -110,9 +127,13 @@ export class Vitals {
 
   /** Сытость и рост от еды (мутация «Переваривание» усиливает). */
   eat(hungerPoints: number, xpPoints: number): void {
-    this.hunger = Math.min(this.maxHunger, this.hunger + hungerPoints * this.digestMult)
-    this.addXp(xpPoints * this.digestMult)
+    this.hunger = Math.min(this.maxHunger, this.hunger + hungerPoints * this.digestMult * this.geneDigestMult)
+    this.addXp(xpPoints * this.digestMult * this.geneDigestMult)
+    this.onEat?.()
   }
+
+  /** Сцена подписывается: «Кровавый напор» после трапезы. */
+  onEat: (() => void) | null = null
 
   addXp(points: number): void {
     if (!this.alive) return
@@ -127,6 +148,17 @@ export class Vitals {
       this.hunger = Math.min(this.maxHunger, this.hunger + g.hungerMaxPerLevel)
       this.onLevelUp?.(this.level)
     }
+  }
+
+  /** «Костяная броня»/прочее: применяет множитель получаемого урона. */
+  damageWithMult(amount: number): number {
+    return this.damage(Math.max(1, Math.round(amount * this.damageTakenMult)))
+  }
+
+  /** Проклятие «Прозрачная кожа»: потолок HP режется долей. */
+  applyHpPct(pct: number): void {
+    this.maxHp = Math.max(1, Math.floor(this.maxHp * pct))
+    this.hp = Math.min(this.hp, this.maxHp)
   }
 
   /**

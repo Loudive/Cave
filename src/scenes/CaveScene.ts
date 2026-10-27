@@ -9,6 +9,8 @@ import { Enemy, type EnemyContext, type KillerKind } from '../entities/Enemy'
 import { Spores } from '../systems/Spores'
 import { FireTrail } from '../systems/FireTrail'
 import { Ecosystem, type NestRecord } from '../systems/Ecosystem'
+import { Companion } from '../entities/Companion'
+import { GENES, loadGeneSave, saveGeneSave, grantGene, type GeneSave, type GeneDef } from '../config/genes'
 import { DebugOverlay } from '../systems/DebugOverlay'
 import { MiniMap } from '../systems/MiniMap'
 import { DarknessMask } from '../systems/DarknessMask'
@@ -80,14 +82,25 @@ export class CaveScene extends Phaser.Scene {
   private spores!: Spores
   private fire!: FireTrail
   private eco!: Ecosystem
+  // Шаг 8: геномы — постоянные гены, цветки, лунки, уникальные, спутник.
+  private geneSave!: GeneSave
+  private genesGained: string[] = []
+  private genePickups: { img: Phaser.GameObjects.Image; twin: Phaser.GameObjects.Image; geneId: string }[] = []
+  private flowers: { img: Phaser.GameObjects.Image; glow: Phaser.GameObjects.Image; x: number; y: number; used: boolean }[] = []
+  private genePools: { x: number; y: number; used: boolean }[] = []
+  private genePoolGlow: Phaser.GameObjects.Image[] = []
+  private companion: Companion | null = null
+  private pendingCompanion = false
+  private echoNextAt = 0
+  private spikeReady = true
 
   private seedBase = ''
   private depth = 1
   private exiting = false
   private dying = false
   private maxMeters = 0
-  /** Модификаторы мутаций, живущие в сцене (thorns/stealth/stun). */
-  private sceneMods = { thorns: 0, detectMult: 1, stunMs: 0 }
+  /** Модификаторы мутаций, живущие в сцене (thorns/stealth/stun/свет). */
+  private sceneMods = { thorns: 0, detectMult: 1, stunMs: 0, lightMult: 1, sporeBreath: false, echo: false, spikeMane: 0 }
   /** Слои тайлмапа (для коллизий возрождённых мобов). */
   private tileLayers: { stone: Phaser.Tilemaps.TilemapLayer; ground: Phaser.Tilemaps.TilemapLayer } | null = null
 
@@ -180,6 +193,10 @@ export class CaveScene extends Phaser.Scene {
 
     // ── Шаг 6: виталы, кровь, еда, мутации, бой ─────────────────────────────
     this.vitals = new Vitals()
+
+    // Шаг 8: постоянные гены применяются к стартам каждого забега.
+    this.geneSave = loadGeneSave()
+    this.applyGenes()
     this.blood = new BloodFx(this, this.cave, this.hitStop, (x, y) => {
       // Сгусток подобран: немного сытости и роста, алое число.
       const c = BALANCE.clots
@@ -246,7 +263,8 @@ export class CaveScene extends Phaser.Scene {
     this.mask.setPlayer(this.mask.add({
       x: () => this.creature.x,
       y: () => this.creature.y,
-      radius: LIGHT.playerLight.radius,
+      // Шаг 8: множитель света (Ночное зрение / Светожорное ядро / ген свечения).
+      radius: LIGHT.playerLight.radius * this.sceneMods.lightMult,
       breathe: true,
     }))
 
@@ -259,6 +277,19 @@ export class CaveScene extends Phaser.Scene {
 
     // Добыча у гнёзд шага 4 + гарантированная еда у входа.
     this.spawnEnemies()
+    // Шаг 8: мутагенные цветки, ген-лунки в глубине, уникальные мобы.
+    this.buildMutagenFlowers()
+    this.buildGenePools()
+    this.spawnElites()
+
+    // «Кровавый напор»: после трапезы — рывок скорости.
+    this.vitals.onEat = () => {
+      const br = this.mutations.ownedList.find((m) => m.effect.type === 'bloodRush')
+      if (br && br.effect.type === 'bloodRush') {
+        this.creature.speedBuffMult = br.effect.speedMult
+        this.creature.speedBuffUntil = this.time.now + br.effect.boostMs
+      }
+    }
 
     // ── Ввод боя: J / ЛКМ (десктоп), тач-кнопка — через Hud ─────────────────
     kb.on('keydown-J', () => this.combat.queueKeyBite())
@@ -370,6 +401,43 @@ export class CaveScene extends Phaser.Scene {
       this.fire.update(time, this.creature.x, this.creature.y, this.vitals.alive, this.enemies)
       this.eco.update(time)
 
+      // Шаг 8: «Споровый вдох» — зона Грибных полян.
+      const biomeIdx = biomeIndexAtMeters(this.cave.depthOffsetMeters + this.creature.y * GEN.map.metersPerPixel)
+      this.creature.sporeBreathZone = this.sceneMods.sporeBreath && biomeIdx === 0
+
+      // Шаг 8: «Эхо-камера» — пульс каждые 10с подсвечивает живое сквозь стены.
+      if (this.sceneMods.echo && this.vitals.alive && time >= this.echoNextAt) {
+        this.echoNextAt = time + 10000
+        for (const e of this.enemies) {
+          if (e.dead) continue
+          this.eco.ring(e.x, e.y, '#58e6c8', 0.45)
+          e.updateSilhouette(e.x, e.y, 99999)
+        }
+      }
+
+      // Шаг 8: «Грива шипов» — падение сверху жалит.
+      if (this.sceneMods.spikeMane > 0 && this.vitals.alive) {
+        const pBody = this.creature.body as Phaser.Physics.Arcade.Body
+        if (pBody.blocked.down) this.spikeReady = true
+        if (this.spikeReady && pBody.velocity.y > 160) {
+          for (const e of this.enemies) {
+            if (e.dead) continue
+            if (Math.abs(e.x - this.creature.x) < 20 && this.creature.y < e.y - 8 && pBody.velocity.y > 0) {
+              this.spikeReady = false
+              const applied = e.takeDamage(Math.round(this.vitals.biteDamage * this.sceneMods.spikeMane), 0, 0, 'physical', 'player')
+              if (applied > 0) this.blood.number(e.x, e.y - 16, `${applied}`, '#E8A34F')
+              pBody.velocity.y = -240
+              this.hitStop.freeze(60)
+              this.blood.burst(e.x, e.y, { count: 10, dirDeg: 90, spreadDeg: 360 })
+              break
+            }
+          }
+        }
+      }
+
+      // Шаг 8: цветки, ген-лунки, геном-кристаллы, спутник.
+      this.updateGenomes(time)
+
       this.eating.update(time, this.creature.x, this.creature.y)
       this.vitals.update(delta)
       this.blood.update(this.creature.x, this.creature.y)
@@ -442,12 +510,29 @@ export class CaveScene extends Phaser.Scene {
       enemy.x, enemy.y,
       Phaser.Math.Between(b.clotsPerKill[0], b.clotsPerKill[1]),
     )
+    // «Корона Матки» (шаг 8): побеждённый мелкий моб становится спутником.
+    if (this.pendingCompanion && killer === 'player'
+      && (enemy.speciesId === 'slug' || enemy.speciesId === 'bat')) {
+      this.pendingCompanion = false
+      this.spawnCompanion(enemy.x, enemy.y)
+      this.eco.ring(enemy.x, enemy.y, '#e8a34f', 0.8)
+      this.eco.onMobDeath(enemy.nestIndex)
+      if (killer === 'player') this.vitals.eatenCount++
+      return
+    }
+
     this.eating.spawnCarcass(enemy.speciesId, enemy.x, enemy.y)
     this.eco.ring(enemy.x, enemy.y, enemy.species.noiseColor, 0.6)
     this.eco.onMobDeath(enemy.nestIndex)
     if (killer === 'player') {
       this.vitals.eatenCount++
-      this.mutations.rollDrop(enemy.x, enemy.y)
+      // Уникальный моб несёт ПОСТОЯННЫЙ ген (шаг 8).
+      if (enemy.elite) {
+        this.dropGenePickup(enemy.x, enemy.y)
+        this.mutations.rollDrop(enemy.x, enemy.y)
+      } else {
+        this.mutations.rollDrop(enemy.x, enemy.y)
+      }
     }
   }
 
@@ -462,7 +547,8 @@ export class CaveScene extends Phaser.Scene {
         this.creature.mods.airJumps = e.airJumps
         break
       case 'stealth':
-        this.sceneMods.detectMult = e.detectMult
+        // Мультипликативно: проклятие «Прозрачной кожи» усиливает маскировку.
+        this.sceneMods.detectMult *= e.detectMult
         break
       case 'thorns':
         this.sceneMods.thorns = e.damage
@@ -470,16 +556,49 @@ export class CaveScene extends Phaser.Scene {
       case 'stunBite':
         this.combat.mods.stunMs = e.stunMs
         break
+      // ── Шаг 8: расширенный пул ──
+      case 'sporeBreath':
+        this.sceneMods.sporeBreath = true
+        break
+      case 'echoPulse':
+        this.sceneMods.echo = true
+        break
+      case 'bloodRush':
+        break // бафф вешается в vitals.onEat при трапезе
+      case 'parasiteSaliva':
+        this.combat.mods.parasite = { dps: e.dps, durationMs: e.durationMs }
+        break
+      case 'nightVision':
+        this.sceneMods.lightMult *= e.lightMult
+        break
+      case 'spikeMane':
+        this.sceneMods.spikeMane = e.damageMult
+        break
+      case 'motherCrown':
+        this.pendingCompanion = true
+        break
+      case 'lightHungerCore':
+        this.sceneMods.lightMult *= e.lightMult
+        break
       default:
-        // digestion / biteDamage / secondHeart уже в Vitals.
+        // digestion / biteDamage / secondHeart / gluttonMaw / bonePlate /
+        // lightHungerCore-урон / проклятия — уже в Vitals.applyEffect.
         break
     }
+    // Свет — живой множитель: пересобирать дыру не нужно, radius читается каждый кадр.
+    void this.sceneMods
   }
 
-  /** Смерть существа: взрыв, затемнение, экран забега → новый seed. */
+  /** Смерть существа: взрыв, затемнение, экран итога → меню (шаг 8). */
   private handleDeath(): void {
     if (this.dying) return
     this.dying = true
+    // Накопительная статистика между забегами (localStorage, шаг 8).
+    this.geneSave.stats.deaths++
+    this.geneSave.stats.runs++
+    this.geneSave.stats.bestDepthM = Math.max(this.geneSave.stats.bestDepthM, this.maxMeters)
+    this.geneSave.stats.bestEaten = Math.max(this.geneSave.stats.bestEaten, this.vitals.eatenCount)
+    saveGeneSave(this.geneSave)
     const d = BALANCE.death
     this.hitStop.freeze(d.hitstopMs)
     this.blood.explode(
@@ -511,20 +630,31 @@ export class CaveScene extends Phaser.Scene {
       color: '#E23A4E',
       fontStyle: 'bold',
     }).setOrigin(0.5)
+    // Что съел (по видам) — истории забегов рождаются здесь.
+    const eatenParts = Object.entries(this.eating.eatenBySpecies)
+      .sort((a, b) => b[1] - a[1])
+      .map(([id, n]) => `${ENEMIES.species[id].name} ×${n}`)
+    const eatenLine = eatenParts.length > 0 ? eatenParts.join(' · ') : 'ничего — пещера победила'
+    const genesLine = this.genesGained.length > 0
+      ? this.genesGained.map((id) => GENES.genes.find((g) => g.id === id)?.name ?? id).join(' · ')
+      : null
     const lines = [
       `съедено добычи — ${this.vitals.eatenCount}`,
+      `рацион: ${eatenLine}`,
       `рост существа — уровень ${this.vitals.level}`,
       `мутаций внедрено — ${this.vitals.mutationsCount}`,
       `максимальная глубина — ${this.maxMeters} м`,
+      `на чём погиб: ${this.vitals.lastDamageCause}`,
     ]
-    const stats = this.add.text(width / 2, height / 2 - 18, lines.join('\n'), {
+    if (genesLine) lines.push(`постоянные гены: ${genesLine} (переживут смерть)`)
+    const stats = this.add.text(width / 2, height / 2 - 30, lines.join('\n'), {
       fontFamily: 'monospace',
-      fontSize: '16px',
+      fontSize: '15px',
       color: '#E8E6E3',
       align: 'center',
-      lineSpacing: 8,
+      lineSpacing: 7,
     }).setOrigin(0.5)
-    const hint = this.add.text(width / 2, height / 2 + 78, '— нажми, чтобы начать новый забег —', {
+    const hint = this.add.text(width / 2, height / 2 + 108, '— нажми, чтобы вернуться в Гнездо —', {
       fontFamily: 'monospace',
       fontSize: '15px',
       color: '#58E6C8',
@@ -539,11 +669,12 @@ export class CaveScene extends Phaser.Scene {
       repeat: -1,
     })
 
+    // Смерть возвращает в меню (гайд шаг 8): постоянная часть сохранена.
     const restart = (): void => {
       cam.fadeOut(320, 4, 4, 8)
       cam.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
         kb.removeAllListeners()
-        this.scene.restart({ seed: randomSeedStr(), depth: 1 })
+        this.scene.start('Menu')
       })
     }
     this.input.once(Phaser.Input.Events.POINTER_DOWN, restart)
@@ -872,6 +1003,302 @@ export class CaveScene extends Phaser.Scene {
     this.physics.add.existing(zone, true)
 
     this.physics.add.overlap(this.creature, zone, () => this.descend())
+  }
+
+  // ── Шаг 8: геномы — гены, цветки, лунки, уникальные, спутник ──────────────
+
+  /** Постоянные гены (localStorage) применяются к старту каждого забега. */
+  private applyGenes(): void {
+    for (const id of this.geneSave.genes) {
+      const def = GENES.genes.find((g) => g.id === id)
+      if (!def) continue
+      const e = def.effect
+      switch (e.type) {
+        case 'maxHp':
+          this.vitals.geneMaxHpBonus += e.bonus
+          this.vitals.maxHp += e.bonus
+          this.vitals.hp += e.bonus
+          break
+        case 'bite':
+          this.vitals.geneBiteBonus += e.bonus
+          break
+        case 'hungerMax':
+          this.vitals.geneHungerMaxBonus += e.bonus
+          this.vitals.maxHunger += e.bonus
+          this.vitals.hunger += e.bonus
+          break
+        case 'grip':
+          this.creature.mods.wallSlideMult *= e.wallSlideMult
+          break
+        case 'glow':
+          this.sceneMods.lightMult *= e.lightMult
+          break
+        case 'digest':
+          this.vitals.geneDigestMult *= e.mult
+          break
+        case 'socket':
+          this.vitals.mutationSlots += 1
+          break
+      }
+    }
+  }
+
+  /** Взвешенный выбор постоянного гена (уже собранные исключаются). */
+  private pickWeightedGene(): GeneDef | null {
+    const left = GENES.genes.filter((g) => !this.geneSave.genes.includes(g.id))
+    if (left.length === 0) return null
+    const total = left.reduce((s, g) => s + g.weight, 0)
+    let roll = Math.random() * total
+    for (const g of left) {
+      roll -= g.weight
+      if (roll <= 0) return g
+    }
+    return left[0]
+  }
+
+  /** Мутагенные цветки: трогаешь — бросок на забеговую мутацию. */
+  private buildMutagenFlowers(): void {
+    const rng = new Rng(hashSeed(this.cave.seed + ':flowers'))
+    const tile = this.cave.tile
+    let placed = 0
+    for (let tries = 0; tries < 900 && placed < 6; tries++) {
+      const tx = rng.int(this.cave.cols)
+      const ty = rng.int(this.cave.rows)
+      if (this.cave.solid[ty * this.cave.cols + tx] !== 0) continue
+      if (this.cave.solid[(ty + 1) * this.cave.cols + tx] !== 1) continue
+      // Цветок растёт на полу, не рядом со входом.
+      if (Math.abs(tx - this.cave.entrance.x) < 8 && Math.abs(ty - this.cave.entrance.y) < 8) continue
+      const x = tx * tile + tile / 2
+      const y = (ty + 1) * tile - 8
+      const glow = this.add.image(x, y - 6, 'glow-purple')
+        .setDepth(2)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setAlpha(0.26)
+        .setScale(0.7)
+      const img = this.add.image(x, y, 'mutation-gem')
+        .setDepth(2)
+        .setTint(0xa8e34f)
+        .setScale(0.8)
+      this.tweens.add({
+        targets: glow,
+        alpha: { from: 0.14, to: 0.34 },
+        scale: { from: 0.6, to: 0.85 },
+        duration: 1500 + placed * 130,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.InOut',
+      })
+      this.flowers.push({ img, glow, x, y, used: false })
+      placed++
+    }
+  }
+
+  /** Ген-лунки (шаг 8): глубокие биомы — постоянные гены. */
+  private buildGenePools(): void {
+    const rng = new Rng(hashSeed(this.cave.seed + ':pools'))
+    const tile = this.cave.tile
+    const deepTy = Math.floor(this.cave.rows * 0.55)
+    let placed = 0
+    for (let tries = 0; tries < 1200 && placed < 2; tries++) {
+      const tx = rng.int(this.cave.cols)
+      const ty = deepTy + rng.int(this.cave.rows - deepTy)
+      if (ty >= this.cave.rows - 1) continue
+      if (this.cave.solid[ty * this.cave.cols + tx] !== 0) continue
+      if (this.cave.solid[(ty + 1) * this.cave.cols + tx] !== 1) continue
+      const x = tx * tile + tile / 2
+      const y = (ty + 1) * tile - 10
+      for (let k = 0; k < 3; k++) {
+        const gem = this.add.image(x + (k - 1) * 7, y - (k % 2) * 4, 'mutation-gem')
+          .setDepth(2)
+          .setTint(0xe8a34f)
+          .setScale(0.9 + (k === 1 ? 0.25 : 0))
+        this.tweens.add({
+          targets: gem,
+          scaleY: { from: 1.0, to: 1.12 },
+          duration: 1100 + k * 240,
+          yoyo: true,
+          repeat: -1,
+          ease: 'Sine.InOut',
+        })
+      }
+      const glow = this.add.image(x, y - 4, 'glow-purple')
+        .setDepth(1)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setAlpha(0.3)
+        .setScale(1.2)
+      this.tweens.add({
+        targets: glow,
+        alpha: { from: 0.18, to: 0.4 },
+        scale: { from: 1.05, to: 1.4 },
+        duration: 1600,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.InOut',
+      })
+      this.genePoolGlow.push(glow)
+      this.genePools.push({ x, y, used: false })
+      placed++
+    }
+  }
+
+  /** Уникальные мобы: элита у глубоких гнёзд — несёт постоянный ген. */
+  private spawnElites(): void {
+    const rng = new Rng(hashSeed(this.cave.seed + ':elites'))
+    const deepNests = this.cave.nests.filter((n) => n.biome >= 2)
+    let elites = 0
+    for (const nest of deepNests) {
+      if (elites >= 2) break
+      if (!rng.chance(0.45)) continue
+      const tile = this.cave.tile
+      const wx = nest.tx * tile + tile / 2
+      const wy = nest.ty * tile + tile / 2 - 10
+      const enemy = this.addEnemyAt(this.pickSpeciesForBiome(nest.biome, rng), wx, wy)
+      if (!enemy) continue
+      enemy.makeElite()
+      elites++
+    }
+  }
+
+  /** Геном-кристалл из уникального моба: подбери — ген навсегда. */
+  private dropGenePickup(x: number, y: number): void {
+    const def = this.pickWeightedGene()
+    if (!def) return
+    const color = 0xe8a34f
+    const img = this.add.image(x, y - 4, 'mutation-gem')
+      .setDepth(3)
+      .setTint(color)
+      .setScale(1.5)
+    const twin = this.add.image(x, y - 4, 'mutation-gem')
+      .setDepth(15)
+      .setTint(color)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setAlpha(0.2)
+      .setScale(1.5)
+    this.tweens.add({
+      targets: [img, twin],
+      scaleX: { from: 1.3, to: 1.7 },
+      scaleY: { from: 1.7, to: 1.3 },
+      duration: 900,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.InOut',
+    })
+    this.genePickups.push({ img, twin, geneId: def.id })
+  }
+
+  /** Трогаешь геном-кристалл/лунку — ген записывается в localStorage. */
+  private grantGeneAt(def: GeneDef, x: number, y: number): void {
+    if (!grantGene(def.id, this.geneSave)) return
+    this.genesGained.push(def.id)
+    if (def.effect.type === 'socket') this.vitals.mutationSlots += 1
+    this.mutations.slots = this.vitals.mutationSlots
+    const color = '#e8a34f'
+    const flash = this.add.image(x, y, 'glow-purple')
+      .setDepth(16)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setScale(0.5)
+      .setAlpha(0.85)
+    this.tweens.add({
+      targets: flash,
+      scale: 2.4,
+      alpha: 0,
+      duration: 460,
+      onComplete: () => flash.destroy(),
+    })
+    this.showGeneBanner(def, color)
+    this.cameras.main.flash(220, 232, 163, 79)
+  }
+
+  /** Баннер постоянного гена (отдельный от мутаций — золотой). */
+  private showGeneBanner(def: GeneDef, color: string): void {
+    const { width } = this.scale
+    const c = this.add.container(width / 2, 64).setDepth(26)
+    const bg = this.add.rectangle(0, 0, 360, 56, 0x0b0b10, 0.86)
+      .setStrokeStyle(1, 0xe8a34f)
+    const title = this.add.text(0, -14, `ПОСТОЯННЫЙ ГЕН · ${def.name.toUpperCase()}`, {
+      fontFamily: 'monospace',
+      fontSize: '14px',
+      fontStyle: 'bold',
+      color,
+    }).setOrigin(0.5)
+    const desc = this.add.text(0, 10, `${def.desc} — переживёт смерть`, {
+      fontFamily: 'monospace',
+      fontSize: '12px',
+      color: '#E8E6E3',
+    }).setOrigin(0.5)
+    c.add([bg, title, desc])
+    c.setAlpha(0)
+    this.tweens.add({ targets: c, alpha: 1, y: 78, duration: 260, ease: 'Cubic.Out' })
+    this.time.delayedCall(2800, () => {
+      this.tweens.add({
+        targets: c,
+        alpha: 0,
+        y: 60,
+        duration: 300,
+        onComplete: () => c.destroy(),
+      })
+    })
+  }
+
+  /** Спутник «Короны Матки»: побеждённый мелкий моб встаёт в свиту. */
+  private spawnCompanion(x: number, y: number): void {
+    if (this.companion) return
+    this.companion = new Companion(this, x, y, {
+      playerX: () => this.creature.x,
+      playerY: () => this.creature.y,
+      enemies: () => this.enemies,
+      onCompanionBite: (victim, applied) => {
+        this.blood.burst(victim.x, victim.y, { count: 8, dirDeg: 90, spreadDeg: 360 })
+        this.blood.number(victim.x, victim.y - 14, `${applied}`, '#D8B4FF')
+      },
+    })
+    this.physics.add.collider(this.companion, [
+      this.tileLayers!.stone,
+      this.tileLayers!.ground,
+    ])
+  }
+
+  /** Обновление цветков/лунок/кристаллов/спутника (шаг 8). */
+  private updateGenomes(time: number): void {
+    const px = this.creature.x
+    const py = this.creature.y
+
+    for (const f of this.flowers) {
+      if (f.used) continue
+      if (Math.abs(f.x - px) < 22 && Math.abs(f.y - py) < 26) {
+        f.used = true
+        this.mutations.rollDrop(f.x, f.y - 6)
+        this.tweens.add({ targets: [f.img, f.glow], alpha: 0.12, scale: 0.6, duration: 500 })
+        this.eco.ring(f.x, f.y, '#a8e34f', 0.5)
+      }
+    }
+
+    for (let i = this.genePools.length - 1; i >= 0; i--) {
+      const p = this.genePools[i]
+      if (p.used) continue
+      if (Math.abs(p.x - px) < 24 && Math.abs(p.y - py) < 30) {
+        const def = this.pickWeightedGene()
+        p.used = true
+        if (def) this.grantGeneAt(def, p.x, p.y)
+        this.tweens.add({ targets: this.genePoolGlow[i], alpha: 0.08, duration: 600 })
+      }
+    }
+
+    for (let i = this.genePickups.length - 1; i >= 0; i--) {
+      const g = this.genePickups[i]
+      if (Math.abs(g.img.x - px) < 22 && Math.abs(g.img.y - py) < 26) {
+        const def = GENES.genes.find((gn) => gn.id === g.geneId)
+        if (def) this.grantGeneAt(def, g.img.x, g.img.y)
+        g.img.destroy()
+        g.twin.destroy()
+        this.genePickups.splice(i, 1)
+      }
+    }
+    void time
+
+    if (this.companion) {
+      this.companion.update(this.time.now, this.game.loop.delta, this.mask.playerRadius(this.time.now))
+    }
   }
 
   /** Состав популяции «вид×N» для debug-оверлея. */

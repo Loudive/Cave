@@ -33,6 +33,8 @@ export class Eating {
   private chewing: Carcass | null = null
   private nextChewAt = 0
   private chewsDone = 0
+  /** Шаг 8: сколько и кого съелено за забег (экран итога). */
+  readonly eatenBySpecies: Record<string, number> = {}
 
   constructor(
     private scene: Phaser.Scene,
@@ -190,6 +192,8 @@ export class Eating {
     c.meatLeft -= portion
     this.nextChewAt = time + e.chewMs
     this.chewsDone++
+    // Рацион забега (шаг 8): «что съел» на экране итога.
+    this.eatenBySpecies[c.speciesId] = (this.eatenBySpecies[c.speciesId] ?? 0) + 1
 
     // Сытость + чуть HP + опыт роста.
     this.vitals.eat(portion, xpShare)

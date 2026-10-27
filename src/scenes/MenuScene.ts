@@ -1,7 +1,8 @@
 import Phaser from 'phaser'
+import { GENES, loadGeneSave } from '../config/genes'
 
 /**
- * MenuScene — шаг 7.
+ * MenuScene — шаг 8.
  * Титульный экран: нейрогенерированный splash-арт (шаг 5+ разрешает
  * нейрогенерацию; Nano Banana Pro, палитра игры), споровое свечение,
  * название, вход в пещеру.
@@ -70,11 +71,24 @@ export class MenuScene extends Phaser.Scene {
       ease: 'Sine.InOut',
     })
 
-    this.add.text(cx, height - 28, 'шаг 7 — мобы и живая экосистема · 6 видов · драки без тебя', {
+    this.add.text(cx, height - 28, 'шаг 8 — геномы: 20 мутаций, 6 слотов, постоянные гены переживают смерть', {
       fontFamily: 'monospace',
       fontSize: '12px',
       color: '#8A8894',
     }).setOrigin(0.5).setAlpha(0.7)
+
+    // Постоянная часть (шаг 8): собранные гены видны между забегами.
+    const save = loadGeneSave()
+    if (save.genes.length > 0) {
+      const names = save.genes
+        .map((id) => GENES.genes.find((g) => g.id === id)?.name ?? id)
+        .join(' · ')
+      this.add.text(cx, cy + 92, `постоянные гены (${save.genes.length}): ${names}`, {
+        fontFamily: 'monospace',
+        fontSize: '13px',
+        color: '#E8A34F',
+      }).setOrigin(0.5).setAlpha(0.9)
+    }
 
     // Виньетка поверх всего.
     const vig = this.add.image(cx, cy, 'vignette')
