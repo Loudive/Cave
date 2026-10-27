@@ -9,8 +9,6 @@ permissions:
   contents: read
   pages: write
   id-token: write
-  # нужно только для самого первого включения Pages из workflow
-  administration: write
 
 concurrency:
   group: pages
