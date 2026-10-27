@@ -36,6 +36,8 @@ export class DarknessMask {
   private readonly colorInt: number
   private readonly lights: LightSource[] = []
   private playerLight: LightSource | null = null
+  /** Сердцебиение: 0..1 — усиливает дыхание света (низкий HP/голод, шаг 6). */
+  private heartbeat = 0
   /** Число дыр, вырезанных в последнем кадре (debug). */
   public lastHoles = 0
 
@@ -69,9 +71,18 @@ export class DarknessMask {
     let r = this.playerLight.radius
     if (this.playerLight.breathe) {
       const cfg = LIGHT.playerLight
-      r *= 1 + cfg.breatheAmp * Math.sin((time / cfg.breathePeriodMs) * Math.PI * 2)
+      // Сердцебиение (шаг 6): при низком HP/голоду свет дышит чаще и глубже —
+      // «свет игрока дышит вместе с сердцебиением при низком HP» (гайд §7).
+      const amp = cfg.breatheAmp * (1 + this.heartbeat * 2.4)
+      const period = cfg.breathePeriodMs / (1 + this.heartbeat * 1.1)
+      r *= 1 + amp * Math.sin((time / period) * Math.PI * 2)
     }
     return r
+  }
+
+  /** Сила сердцебиения света 0..1 (сцена считает по HP/голоду). */
+  setHeartbeat(level: number): void {
+    this.heartbeat = Phaser.Math.Clamp(level, 0, 1)
   }
 
   update(scene: Phaser.Scene): void {

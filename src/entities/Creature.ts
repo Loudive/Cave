@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import { MOVEMENT } from '../config/movement'
+import { BALANCE } from '../config/balance'
 
 /**
  * Состояние существа — показывается в debug-оверлее (шаг 3).
@@ -41,6 +42,19 @@ function moveToward(value: number, target: number, maxDelta: number): number {
 export class Creature extends Phaser.Physics.Arcade.Sprite {
   private keys: CreatureKeys
 
+  /** Модификаторы мутаций (шаг 6): сцепление и воздушные прыжки. */
+  public mods = { wallSlideMult: 1, airJumps: 0 }
+  private airJumpsLeft = 0
+
+  /** Последнее горизонтальное направление взгляда (1 правый, −1 левый). */
+  private facingDir: 1 | -1 = 1
+
+  /** Визуальный рост (Vitals.bodyScale) — твины укуса считаются от него. */
+  private growthScale = 1
+
+  /** Сцена подписывается: фиолетовый выброс спор на воздушном прыжке. */
+  onAirJump: (() => void) | null = null
+
   // Таймеры состояния (мс, отсчёт от scene.time.now).
   private lastOnFloorAt = -Infinity
   private lastJumpPressedAt = -Infinity
@@ -68,6 +82,18 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
     this.setMaxVelocity(MOVEMENT.run.runMaxSpeed, MOVEMENT.terminalVelocity)
     this.setDrag(0, 0)
     this.setDepth(3)
+    this.setName('player')
+  }
+
+  /** Направление взгляда: куда был последний ввод по горизонтали. */
+  get facing(): 1 | -1 {
+    return this.facingDir
+  }
+
+  /** Применить визуальный рост (Vitals.level → bodyScale). */
+  applyGrowth(scale: number): void {
+    this.growthScale = scale
+    this.setScale(scale)
   }
 
   /** Вызывать из scene.update(time, delta) каждый кадр. */
@@ -138,6 +164,7 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
 
     const accel = inAir ? cfg.runAccel * cfg.airControl : cfg.runAccel
     const dir = (this.down(this.keys.right) ? 1 : 0) - (this.down(this.keys.left) ? 1 : 0)
+    if (dir !== 0) this.facingDir = dir as 1 | -1
 
     if (dir !== 0) {
       body.velocity.x = moveToward(body.velocity.x, dir * cfg.runMaxSpeed, accel * dt)
@@ -162,6 +189,7 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
       this.lastOnFloorAt = -Infinity
       this.lastJumpPressedAt = -Infinity
       this.jumpCutDone = false
+      this.airJumpsLeft = this.mods.airJumps
       return
     }
 
@@ -172,10 +200,18 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
       this.wallLockUntil = now + wall.wallLockTime
       this.lastJumpPressedAt = -Infinity
       this.jumpCutDone = false
+      this.airJumpsLeft = this.mods.airJumps
       return
     }
 
-    // 3) Прыжок в воде/в воздухе без стены не даём (строгость хищника).
+    // 3) Мутация «Сгусток-прыгун»: двойной прыжок на кровавой пружине.
+    if (this.airJumpsLeft > 0) {
+      this.airJumpsLeft--
+      body.velocity.y = jump.jumpVelocity * 0.92
+      this.lastJumpPressedAt = -Infinity
+      this.jumpCutDone = false
+      this.onAirJump?.()
+    }
   }
 
   private airLogic(body: Phaser.Physics.Arcade.Body, dt: number): void {
@@ -192,9 +228,10 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
     const rising = body.velocity.y < 0
     const onWall = this.wallDir !== 0 && !body.blocked.down
 
-    // Wall slide: тянемся к стене и падаем — замедляем падение.
-    if (onWall && !rising && body.velocity.y > wall.wallSlideMaxFall) {
-      body.velocity.y = wall.wallSlideMaxFall
+    // Wall slide: тянемся к стене и падаем — замедляем падение
+    // (мутация «Липкая кровь» умножает потолок падения).
+    if (onWall && !rising && body.velocity.y > wall.wallSlideMaxFall * this.mods.wallSlideMult) {
+      body.velocity.y = wall.wallSlideMaxFall * this.mods.wallSlideMult
     }
 
     // Планирование: удержание вверх в падении — плавный тормоз до потолка.
@@ -205,6 +242,62 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
     ) {
       body.velocity.y = moveToward(body.velocity.y, glide.glideFallSpeed, glide.glideBrake * dt)
     }
+  }
+
+  // ── Визуальные хуки шага 6 (укус, урон, чавканье) ─────────────────────
+
+  /** Замах: существо приседает и сжимается — телеграф укуса. */
+  biteWindupVisual(): void {
+    this.scene.tweens.killTweensOf(this)
+    this.scene.tweens.add({
+      targets: this,
+      scaleX: this.growthScale * 0.88,
+      scaleY: this.growthScale * 1.1,
+      duration: BALANCE.player.biteWindupMs,
+      ease: 'Quad.In',
+    })
+  }
+
+  /** Выпад: разжатие с перерастяжением — бросок в жертву. */
+  biteActiveVisual(): void {
+    this.scene.tweens.killTweensOf(this)
+    this.scene.tweens.add({
+      targets: this,
+      scaleX: this.growthScale * 1.3,
+      scaleY: this.growthScale * 0.78,
+      duration: 70,
+      yoyo: true,
+      ease: 'Quad.Out',
+      onComplete: () => this.setScale(this.growthScale),
+    })
+  }
+
+  /** Чавканье: довольное сжатие. */
+  chewVisual(): void {
+    this.scene.tweens.killTweensOf(this)
+    this.scene.tweens.add({
+      targets: this,
+      scaleX: this.growthScale * 1.12,
+      scaleY: this.growthScale * 0.9,
+      duration: 90,
+      yoyo: true,
+      ease: 'Sine.InOut',
+      onComplete: () => this.setScale(this.growthScale),
+    })
+  }
+
+  /** Урон: мигание на время неуязвимости. */
+  hurtVisual(ms: number): void {
+    this.scene.tweens.killTweensOf(this)
+    this.setScale(this.growthScale)
+    this.scene.tweens.add({
+      targets: this,
+      alpha: 0.35,
+      duration: 70,
+      yoyo: true,
+      repeat: Math.ceil(ms / 140),
+      onComplete: () => this.setAlpha(1),
+    })
   }
 
   private down(keys: Phaser.Input.Keyboard.Key[]): boolean {

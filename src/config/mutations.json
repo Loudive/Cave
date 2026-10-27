@@ -1,0 +1,76 @@
+{
+  "_doc": "Шаг 6 — забеговые мутации (записи-данные по духу шага 8). Выпадают из туш с шансом 25% (balance.json). weight — вес в взвешенном пуле; effect.type — хук в коде, payload — параметры эффекта. Редкости по GDD: обычный/необычный/редкий/эпический; легендарные — с уникальных мобов (шаг 7+). Проклятия — шаг 8.",
+  "rarityColors": {
+    "_doc": "Цвета редкостей в UI (палитра игры): обычный — тёплый серый, необычный — кислота, редкий — биолюм-циан, эпический — споровый фиолет («споровый фиолет — редкие геномы»).",
+    "common": "#9a9aa8",
+    "uncommon": "#a8e34f",
+    "rare": "#58e6c8",
+    "epic": "#b36bff"
+  },
+  "pool": [
+    {
+      "id": "sticky-blood",
+      "name": "Липкая кровь",
+      "rarity": "common",
+      "weight": 42,
+      "desc": "+20% сцепления: скольжение по стенам медленнее",
+      "effect": { "type": "grip", "wallSlideMult": 0.8 }
+    },
+    {
+      "id": "rich-blood",
+      "name": "Жирная кровь",
+      "rarity": "common",
+      "weight": 42,
+      "desc": "Еда даёт +25% голода и роста (Переваривание)",
+      "effect": { "type": "digestion", "mult": 1.25 }
+    },
+    {
+      "id": "acid-glands",
+      "name": "Кислотные железы",
+      "rarity": "uncommon",
+      "weight": 24,
+      "desc": "Укус пробивает панцири и мембраны: урон +25%",
+      "effect": { "type": "biteDamage", "mult": 1.25 }
+    },
+    {
+      "id": "clot-jumper",
+      "name": "Сгусток-прыгун",
+      "rarity": "rare",
+      "weight": 16,
+      "desc": "Двойной прыжок: второй толчок — на кровавой пружине",
+      "effect": { "type": "doubleJump", "airJumps": 1 }
+    },
+    {
+      "id": "toxic-skin",
+      "name": "Токсичная шкура",
+      "rarity": "rare",
+      "weight": 16,
+      "desc": "Каждый, кто укусил тебя, получает 6 урона",
+      "effect": { "type": "thorns", "damage": 6 }
+    },
+    {
+      "id": "chameleon-film",
+      "name": "Хамелеонская плёнка",
+      "rarity": "rare",
+      "weight": 16,
+      "desc": "Мобы замечают тебя в 2 раза позже",
+      "effect": { "type": "stealth", "detectMult": 0.5 }
+    },
+    {
+      "id": "electro-organs",
+      "name": "Электроорганы",
+      "rarity": "epic",
+      "weight": 10,
+      "desc": "Укус парализует цель на 1 секунду",
+      "effect": { "type": "stunBite", "stunMs": 1000 }
+    },
+    {
+      "id": "second-heart",
+      "name": "Второе сердце",
+      "rarity": "epic",
+      "weight": 10,
+      "desc": "Раз за забег смертельный урон оставляет 1 HP",
+      "effect": { "type": "secondHeart" }
+    }
+  ]
+}

@@ -1,0 +1,96 @@
+{
+  "_doc": {
+    "readme": "Шаг 6 — боёвка, голод и поедание. ВСЕ числа боя/еды/роста — здесь, код без магических констант. Единицы: урон — hp, дистанции — px, время — мс, скорости — px/s.",
+    "player": "Сила существа: maxHp — живучесть; bite* — параметры укуса: телеграф замаха (windupMs), активное окно хитбокса (activeMs), откат (cooldownMs), радиус (range), сектор (arcDeg), рывок (lungeSpeed), отброс жертвы (knockback); hpFromChew — сколько HP возвращают кусок еды; invulnAfterHitMs — неуязвимость после урона (мигание).",
+    "hunger": "Голод: max — запас; tickMs/drainPerTick — снижение каждые 2 секунды (гайд); starveDamage/starveTickMs — при нуле HP «тает»; warnBelow — порог тревоги (пульс бара, сердцебиение света).",
+    "growth": "Рост от еды: xpBase/xpCurveExp — кривая опыта xpToNext(level)=xpBase·level^exp; scalePerLevel/maxScale — существо visibly растёт; hpPerLevel/bitePerLevel/hungerMaxPerLevel — статы уровня; appetitePerLevel — голод тает быстрее (цена размера).",
+    "eating": "Поедание туши: chewMs — темп чавканья; range — радиус доедания; hungerPerChew — сытость за кусок; meat измеряется в очках голода (species.meat в enemies.json); hpPerChew берётся из player.hpFromChew; carcassLifeMs — туша истлевает; chunkParticles — куски за чавканье.",
+    "clots": "Сгустки крови на месте убийства (гайд: «сгустки можно есть»): hunger/xp за поднятый сгусток, clotLifeMs — срок, pickupRadius — дистанция подбора.",
+    "hit": "Juice попадания: hitstopMs — мир замирает (гайд: 80мс), shakePx/shakeMs — тряска камеры 4px; kill* — усиленные значения за убийство.",
+    "blood": "Кровь трёхслойная: particles* — брызги с гравитацией; decal* — декали на полу/стенах, медленно темнеют (darkenMs) и уходят (lifeMs); stickyChance — доля частиц, «прилипающих» декалью; maxDecals — пул декалей (высокое качество).",
+    "mutations": "Мутации из туш: dropChance — шанс 25% (гайд); maxOwned — потолок за забег (слоты — шаг 8).",
+    "spawn": "Расселение добычи: perNest — мобов на гнездо (гнёзда шага 4 заселяются), entrancePrey — гарантированные слизни у входа (стартовая еда), maxAlive — потолок.",
+    "death": "Смерть существа: fadeMs — затемнение, hitstopMs — долгий хитстоп, bloodMultiplier — взрыв крови."
+  },
+  "player": {
+    "maxHp": 100,
+    "biteDamage": 12,
+    "biteWindupMs": 110,
+    "biteActiveMs": 130,
+    "biteCooldownMs": 420,
+    "biteRange": 46,
+    "biteArcDeg": 160,
+    "biteLungeSpeed": 250,
+    "biteKnockback": 230,
+    "hpFromChew": 2,
+    "invulnAfterHitMs": 500
+  },
+  "hunger": {
+    "max": 100,
+    "tickMs": 2000,
+    "drainPerTick": 1.4,
+    "starveDamage": 3,
+    "starveTickMs": 1500,
+    "warnBelow": 30
+  },
+  "growth": {
+    "xpBase": 40,
+    "xpCurveExp": 0.9,
+    "maxLevel": 8,
+    "scalePerLevel": 0.035,
+    "maxScale": 1.25,
+    "hpPerLevel": 10,
+    "bitePerLevel": 2,
+    "hungerMaxPerLevel": 8,
+    "appetitePerLevel": 0.04
+  },
+  "eating": {
+    "chewMs": 190,
+    "range": 42,
+    "hungerPerChew": 10,
+    "carcassLifeMs": 40000,
+    "chunkParticles": 3
+  },
+  "clots": {
+    "hunger": 4,
+    "xp": 2,
+    "lifeMs": 9000,
+    "pickupRadius": 26
+  },
+  "hit": {
+    "hitstopMs": 80,
+    "shakePx": 4,
+    "shakeMs": 110,
+    "killHitstopMs": 140,
+    "killShakePx": 6,
+    "killShakeMs": 160
+  },
+  "blood": {
+    "particlesPerHit": [14, 22],
+    "particlesPerKill": [42, 60],
+    "speedMin": 60,
+    "speedMax": 330,
+    "lifespanMin": 350,
+    "lifespanMax": 800,
+    "gravity": 900,
+    "stickyChance": 0.55,
+    "decalDarkenMs": 6000,
+    "decalLifeMs": 30000,
+    "maxDecals": 220,
+    "clotsPerKill": [4, 7]
+  },
+  "mutations": {
+    "dropChance": 0.25,
+    "maxOwned": 6
+  },
+  "spawn": {
+    "perNest": [1, 2],
+    "entrancePrey": 2,
+    "maxAlive": 18
+  },
+  "death": {
+    "hitstopMs": 260,
+    "fadeMs": 700,
+    "bloodMultiplier": 2.2
+  }
+}

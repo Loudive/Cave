@@ -1,0 +1,77 @@
+{
+  "_doc": {
+    "readme": "Шаг 6 — добыча для боёвки (базовая версия; полный FSM-ИИ 6 видов и драки между мобами — шаг 7). meat измеряется в очках голода (чавканье по hungerPerChew), xp — опыт роста.",
+    "spawn": "Расселение: perNest — сколько мобов просыпается у каждого гнезда (гнёзда шага 4); speciesWeights — вероятности видов на гнездо; biomeFallback — виды для всех биомов шага 6 (шаг 7 распишет по биомам).",
+    "slug": "Мышевидный слизень — быстрый, слабый (гайд). Wander: блуждание с паузами. Flee: убегает, заметив свет игрока (detectRadius × мутация маскировки). Cornered counter: прижатый к стене кусается — замах 340мс (гайд: «у каждой атаки — замах 0,3–0,4с»), выпад, откат.",
+    "bat": "Пещерный нетопырь — летает по синусоиде вокруг якоря (гайд, шаг 7), уходит вверх при опасности, не атакует в ответ. Крупнее добыча — ловить труднее.",
+    "speciesCommon": "hp — живучесть; size — хитбокс; texture — спрайт; detectRadius — радиус реакции на свет; knockbackResist — доля гашения отброса; twin — силуэт вне света (alpha вне света)."
+  },
+  "spawn": {
+    "perNest": 2,
+    "speciesWeights": [
+      { "id": "slug", "weight": 0.65 },
+      { "id": "bat", "weight": 0.35 }
+    ],
+    "biomeFallback": ["slug", "bat"]
+  },
+  "species": {
+    "slug": {
+      "name": "Мышевидный слизень",
+      "hp": 18,
+      "size": [18, 12],
+      "texture": "mob-slug",
+      "meat": 30,
+      "xp": 24,
+      "detectRadius": 150,
+      "knockbackResist": 0.35,
+      "twinAlpha": 0.5,
+      "wander": {
+        "speed": 55,
+        "pauseMs": [500, 1500],
+        "moveMs": [700, 1800],
+        "hopEveryMs": 900
+      },
+      "flee": {
+        "speed": 235,
+        "hopChance": 0.5,
+        "hopVelocityY": -190
+      },
+      "counter": {
+        "windupMs": 340,
+        "lungeSpeed": 310,
+        "damage": 7,
+        "cooldownMs": 2800,
+        "triggerRange": 92,
+        "corneredOnly": true,
+        "stuckMs": 450
+      },
+      "_flavor": "Шкурка цвета пещерной пыли, два глазка-бусины. Округлый силуэт — гайд: «округлые безопаснее»."
+    },
+    "bat": {
+      "name": "Пещерный нетопырь",
+      "hp": 14,
+      "size": [20, 12],
+      "texture": "mob-bat",
+      "meat": 45,
+      "xp": 34,
+      "detectRadius": 190,
+      "knockbackResist": 0.1,
+      "twinAlpha": 0.5,
+      "fly": {
+        "speed": 85,
+        "anchorRadius": 90,
+        "anchorYMin": 44,
+        "anchorYMax": 96,
+        "sineAmplitudePx": 26,
+        "sinePeriodMs": 1700,
+        "wingFlapMs": 160
+      },
+      "flee": {
+        "speed": 290,
+        "climbBias": 0.55
+      },
+      "counter": null,
+      "_flavor": "Угловатые крылья-лезвия, крошечные красные глазки — «угловатые опаснее»."
+    }
+  }
+}

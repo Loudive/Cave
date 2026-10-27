@@ -1,8 +1,10 @@
 import Phaser from 'phaser'
 
 /**
- * MenuScene — шаг 0.
- * Титульный экран: споровое свечение, название, вход в пещеру.
+ * MenuScene — шаг 6.
+ * Титульный экран: нейрогенерированный splash-арт (шаг 5+ разрешает
+ * нейрогенерацию; Nano Banana Pro, палитра игры), споровое свечение,
+ * название, вход в пещеру.
  */
 export class MenuScene extends Phaser.Scene {
   constructor() {
@@ -14,14 +16,30 @@ export class MenuScene extends Phaser.Scene {
     const cx = width / 2
     const cy = height / 2
 
-    this.cameras.main.fadeIn(400, 4, 4, 8)
+    this.cameras.main.fadeIn(500, 4, 4, 8)
+
+    // Splash-арт: хищник в биолюминесцентной пещере (кадр 16:9 — покрывает).
+    this.add.image(cx, cy, 'menu-splash')
+      .setDisplaySize(width, height)
+      .setAlpha(0.94)
+
+    // Полотно темноты: арт проступает снизу, верхняя треть — под логотип.
+    const veil = this.add.rectangle(cx, cy, width, height, 0x0b0b10, 0.3)
+    this.tweens.add({
+      targets: veil,
+      alpha: { from: 0.26, to: 0.4 },
+      duration: 5200,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.InOut',
+    })
 
     // Два слоя дрейфующих спор — глубина кадра.
-    this.spawnSpores(14, 'glow-purple', 0.1, 0.28, 0.2, 0.55)
-    this.spawnSpores(9, 'glow-cyan', 0.2, 0.45, 0.35, 0.8)
+    this.spawnSpores(10, 'glow-purple', 0.08, 0.24, 0.2, 0.5)
+    this.spawnSpores(7, 'glow-cyan', 0.14, 0.4, 0.3, 0.7)
 
     // Кровавое свечение за названием.
-    this.add.image(cx, cy - 78, 'glow-red').setScale(4.2, 1.9).setAlpha(0.32)
+    this.add.image(cx, cy - 78, 'glow-red').setScale(4.2, 1.9).setAlpha(0.3)
 
     this.add.text(cx, cy - 108, 'CAVE  DEVOURER', {
       fontFamily: 'Georgia, "Times New Roman", serif',
@@ -35,7 +53,7 @@ export class MenuScene extends Phaser.Scene {
       fontFamily: 'monospace',
       fontSize: '15px',
       color: '#E8E6E3',
-    }).setOrigin(0.5).setAlpha(0.75)
+    }).setOrigin(0.5).setAlpha(0.8)
 
     const start = this.add.text(cx, cy + 52, '— нажми, чтобы войти в пещеру —', {
       fontFamily: 'monospace',
@@ -52,7 +70,7 @@ export class MenuScene extends Phaser.Scene {
       ease: 'Sine.InOut',
     })
 
-    this.add.text(cx, height - 28, 'шаг 4 — процедурные пещеры · cellular automata + drunkard\u2019s walk', {
+    this.add.text(cx, height - 28, 'шаг 6 — боёвка, голод и поедание · укус · кровь · рост', {
       fontFamily: 'monospace',
       fontSize: '12px',
       color: '#8A8894',

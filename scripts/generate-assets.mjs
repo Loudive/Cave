@@ -427,4 +427,135 @@ makeSilhouette('silhouette-near.png', 52, {
   stalactites: 6, stalagmites: 5, pillars: 4, minW: 60, maxW: 190, maxLen: 0.42,
 })
 
+// ── Шаг 6: боёвка, кровь, добыча ───────────────────────────────────────────
+// Кровь трёхслойная: частицы (blood-drop), декали (blood-decal), съедобные
+// сгустки (clot). Добыча: округлый слизень (безопасный силуэт) и угловатый
+// нетопырь (опасный силуэт) — гайд, читаемость в темноте.
+
+/** Частица крови 5×7: слеза, летит с гравитацией. */
+{
+  const c = new Canvas(5, 7)
+  for (let y = 0; y <= 6; y++) {
+    const half = y < 2 ? Math.round(y * 0.9) : Math.max(1, Math.round(2.2 - (y - 2) * 0.3))
+    c.rect(2 - half, y, 2 + half, y, PAL.blood, 255)
+  }
+  c.rect(2, 3, 2, 5, [0xff, 0x6a, 0x78], 210)
+  c.save('blood-drop.png')
+}
+
+/** Круглая декаль-клякса 16×16 (белая — красится tint'ом): неровный край. */
+{
+  const c = new Canvas(16, 16)
+  const rnd = mulberry32(61)
+  const blobs = []
+  for (let i = 0; i < 5; i++) {
+    blobs.push({ x: 4 + rnd() * 8, y: 4 + rnd() * 8, r: 2.2 + rnd() * 3 })
+  }
+  blobs.push({ x: 8, y: 8, r: 4.6 })
+  for (const b of blobs) {
+    for (let y = 0; y < 16; y++) {
+      for (let x = 0; x < 16; x++) {
+        const d = Math.hypot(x - b.x, y - b.y)
+        if (d <= b.r) {
+          const a = d > b.r - 1.4 ? Math.round((1 - (d - (b.r - 1.4)) / 1.4) * 235) : 235
+          c.px(x, y, [255, 255, 255], a)
+        }
+      }
+    }
+  }
+  c.save('blood-decal.png')
+}
+
+/** Сгусток крови 6×6: яркая капля — подбирается как еда. */
+{
+  const c = new Canvas(6, 6)
+  c.radial(3, 3, 3, PAL.blood, [[0, 1], [0.55, 0.9], [1, 0]])
+  c.px(2, 2, [0xff, 0x8b, 0x96], 255)
+  c.save('clot.png')
+}
+
+/** Мышевидный слизень 22×14: округлое тельце (безопасный силуэт), пыльный окрас. */
+{
+  const c = new Canvas(22, 14)
+  const body = [0xb5, 0xa3, 0x9b]
+  const dark = [0x77, 0x67, 0x60]
+  const pale = [0xd3, 0xc4, 0xba]
+  // Тело — овал с более тёмной спинкой и светлым брюхом.
+  for (let y = 0; y <= 13; y++) {
+    const t = (y - 6.5) / 6.5
+    const half = Math.round(Math.sqrt(Math.max(0, 1 - t * t)) * 9.4)
+    if (half <= 0) continue
+    c.rect(11 - half, y, 11 + half, y, body, 255)
+  }
+  for (let x = 2; x <= 19; x++) {
+    for (let y = 0; y <= 4; y++) {
+      const t = Math.abs(x - 11) / 9.4
+      if (1 - t * t > 0.25 + (4 - y) * 0.18) c.px(x, y, dark, 255)
+    }
+  }
+  c.rect(4, 10, 18, 12, pale, 170)
+  // Складка-морщинка (сегменты слизня).
+  for (const x of [7, 12, 17]) c.rect(x, 6, x, 12, dark, 120)
+  // Глазки-бусины.
+  c.rect(17, 4, 18, 5, PAL.ink, 255)
+  c.rect(14, 4, 15, 5, PAL.ink, 255)
+  c.save('mob-slug.png')
+}
+
+/** Пещерный нетопырь 24×14: угловатые крылья-лезвия (опасный силуэт). */
+{
+  const c = new Canvas(24, 14)
+  const wing = [0x4a, 0x46, 0x52]
+  const membrane = [0x33, 0x2f, 0x3a]
+  const bodyC = [0x5a, 0x54, 0x64]
+  // Крылья: ломаные треугольники в обе стороны.
+  for (const dir of [-1, 1]) {
+    for (let i = 0; i <= 8; i++) {
+      const x = 11 + dir * i
+      const yTop = 6 - Math.round(Math.sin((i / 8) * Math.PI * 0.9) * 3.4)
+      const yBot = 8 + Math.round(Math.sin((i / 8) * Math.PI) * 4.2)
+      c.rect(x, yTop, x, yBot, i % 2 === 0 ? wing : membrane, 255)
+    }
+  }
+  // Тело-веретено.
+  for (let y = 4; y <= 9; y++) {
+    const half = Math.round(2.6 * Math.sqrt(1 - ((y - 6.5) / 2.9) ** 2))
+    c.rect(11 - half, y, 11 + half, y, bodyC, 255)
+  }
+  // Ушки-иглы.
+  c.rect(10, 2, 10, 3, bodyC, 255)
+  c.rect(12, 2, 12, 3, bodyC, 255)
+  // Красные глазки — «угловатые опаснее».
+  c.rect(12, 5, 12, 5, PAL.blood, 255)
+  c.rect(10, 5, 10, 5, PAL.blood, 255)
+  c.save('mob-bat.png')
+}
+
+/** Кусок мяса 8×8 — летит при чавканье. */
+{
+  const c = new Canvas(8, 8)
+  c.roundRect(1, 2, 6, 6, 2, [0xc4, 0x6a, 0x5a], 255)
+  c.rect(2, 3, 5, 4, [0x8e, 0x3b, 0x44], 220)
+  c.px(3, 5, [0xe8, 0xb0, 0xa0], 200)
+  c.save('meat-chunk.png')
+}
+
+/** Мутаген-кристалл 12×16 (белый — редкость красится tint'ом): растёт из пола. */
+{
+  const c = new Canvas(12, 16)
+  const core = [255, 255, 255]
+  const edge = [210, 210, 220]
+  for (let y = 2; y <= 14; y++) {
+    const t = Math.abs(y - 7) / 5
+    const half = Math.max(1, Math.round((1 - t) * 4.6))
+    c.rect(6 - half, y, 6 + half, y, edge, 235)
+  }
+  c.rect(5, 4, 7, 12, core, 255)
+  c.px(6, 2, core, 255)
+  c.px(6, 3, core, 240)
+  // Основание — у пола.
+  c.rect(3, 14, 8, 14, edge, 200)
+  c.save('mutation-gem.png')
+}
+
 console.log('Готово: assets/ обновлён (детерминированно, seed=20261027).')

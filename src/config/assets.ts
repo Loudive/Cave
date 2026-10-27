@@ -35,6 +35,16 @@ export const ASSETS: AssetEntry[] = [
   { key: 'silhouette-far', file: 'silhouette-far.png' },
   { key: 'silhouette-near', file: 'silhouette-near.png' },
   { key: 'mote', file: 'mote.png' },
+  // Боёвка и поедание (шаг 6): кровь трёх слоёв, добыча, мясо, мутаген.
+  { key: 'blood-drop', file: 'blood-drop.png' },
+  { key: 'blood-decal', file: 'blood-decal.png' },
+  { key: 'clot', file: 'clot.png' },
+  { key: 'mob-slug', file: 'mob-slug.png' },
+  { key: 'mob-bat', file: 'mob-bat.png' },
+  { key: 'meat-chunk', file: 'meat-chunk.png' },
+  { key: 'mutation-gem', file: 'mutation-gem.png' },
+  // Нейрогенерация (шаг 5+ разрешена): splash-арт меню, палитра игры.
+  { key: 'menu-splash', file: 'menu-splash.jpg' },
   // Пост-эффекты.
   { key: 'vignette', file: 'vignette.png' },
 ]
