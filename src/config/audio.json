@@ -1,0 +1,153 @@
+{
+  "_doc": "Шаг 10 — звук и музыка. SFX синтезируются прямо в браузере по пресетам (jsfxr-подход, гайд: «SFX генерируются бесплатно и мгновенно в jsfxr»): пресет → Float32 PCM → WAV dataURI → кэш Phaser. Никаких аудиофайлов. Музыка — процедурные петли: гул+капли (эмбиент всегда), слой боя (кроссфейд в драке), слой глубины (кроссфейд глубже depthThresholdMeters). Громкости music/sfx настраиваются в меню и хранятся в localStorage (cave-audio-v1). Каждый пресет — свои _doc нет: поля описаны в sfxr.ts (wave, частоты Гц, длительности мс, огибающая).",
+  "sampleRate": 22050,
+  "_doc_sampleRate": "Частота синтеза, Гц. 22050 — стандарт jsfxr, для ретро-SFX достаточно. ВАЖНО: числовые листья конфига — плоские числа (объект {_doc, value} сломал синтез: длина буфера NaN).",
+  "defaults": {
+    "_doc": "Громкости по умолчанию (0..1), если в localStorage пусто.",
+    "music": 0.7,
+    "sfx": 0.9
+  },
+  "storageKey": {
+    "_doc": "Ключ localStorage настроек звука.",
+    "value": "cave-audio-v1"
+  },
+  "rateJitter": 0.05,
+  "_doc_rateJitter": "Случайный разбег playback rate ±доля при каждом воспроизведении (0.05 = ±5%): одинаковые звуки не приедаются.",
+  "ambient": {
+    "_doc": "Эмбиент пещеры (гайд: «зацикли эмбиент — гул + капли»). Гул играет всегда; капли — тихий второй слой. Громкости — доли от music-громкости.",
+    "hum": { "key": "mus-hum", "gain": 1.0 },
+    "drips": { "key": "mus-drips", "gain": 0.5 }
+  },
+  "layers": {
+    "_doc": "Музыкальные слои с кроссфейдом (гайд: «два музыкальных слоя, которые подмешиваются при бое и на глубине»). target — доля от music-громкости в активном состоянии; fadeUpMs/fadeDownMs — скорость кроссфейда (вниз медленнее — бой не мигает); combatHoldMs — гистерезис: слой боя держится после последней угрозы.",
+    "combat": { "key": "mus-combat", "target": 0.85, "fadeUpMs": 900, "fadeDownMs": 1600, "combatHoldMs": 1100 },
+    "depth": { "key": "mus-depth", "target": 0.8, "fadeUpMs": 1400, "fadeDownMs": 1200 },
+    "depthThresholdMeters": 600,
+    "_doc_depthThresholdMeters": "Глубина в метрах, глубже которой подмешивается слой глубины (гайд: «глубже 600 метров»)."
+  },
+  "heartbeat": {
+    "_doc": "Сердцебиение при низком HP (гайд: «при низком HP сердцебиение реально тревожит»). Зацикленный звук; громкость = уровень тревоги × gain × sfx-громкость, темп растёт с уровнем (rate 1 + level × rateGain).",
+    "key": "sfx-heartbeat",
+    "gain": 0.9,
+    "rateGain": 0.4
+  },
+  "sfx": {
+    "_doc": "Пресеты SFX (синтез — см. systems/sfxr.ts, SfxPreset). minGapMs — защита от какофонии: не чаще одного звука за интервал.",
+    "bite": {
+      "_doc": "Укус: короткий свист-рык на выпаде.",
+      "minGapMs": 90,
+      "preset": { "wave": "square", "freqStart": 340, "freqEnd": 160, "slideMs": 110, "durationMs": 120, "attackMs": 6, "sustainVol": 0.5, "decayCurve": 2.2, "vibratoHz": 0, "vibratoDepth": 0, "noiseMix": 0.15, "lowpassHz": 1800, "volume": 0.5, "repeats": 1, "repeatGapMs": 0 }
+    },
+    "chew": {
+      "_doc": "Чавканье: мокрый хруст — «звук укуса и чавканья вызывает удовольствие» (гайд).",
+      "minGapMs": 140,
+      "preset": { "wave": "noise", "freqStart": 140, "freqEnd": 90, "slideMs": 0, "durationMs": 140, "attackMs": 4, "sustainVol": 0.6, "decayCurve": 2.6, "vibratoHz": 0, "vibratoDepth": 0, "noiseMix": 0.85, "lowpassHz": 900, "volume": 0.45, "repeats": 1, "repeatGapMs": 0 }
+    },
+    "gulp": {
+      "_doc": "Доедание туши: глоток с понижением.",
+      "minGapMs": 200,
+      "preset": { "wave": "sine", "freqStart": 300, "freqEnd": 110, "slideMs": 240, "durationMs": 260, "attackMs": 8, "sustainVol": 0.55, "decayCurve": 2, "vibratoHz": 9, "vibratoDepth": 0.15, "noiseMix": 0.1, "lowpassHz": 0, "volume": 0.42, "repeats": 1, "repeatGapMs": 0 }
+    },
+    "pain": {
+      "_doc": "Боль игрока (укус/споры/огонь): резкий скул.",
+      "minGapMs": 200,
+      "preset": { "wave": "saw", "freqStart": 380, "freqEnd": 170, "slideMs": 170, "durationMs": 180, "attackMs": 4, "sustainVol": 0.5, "decayCurve": 2.4, "vibratoHz": 0, "vibratoDepth": 0, "noiseMix": 0.25, "lowpassHz": 2200, "volume": 0.5, "repeats": 1, "repeatGapMs": 0 }
+    },
+    "mobDeath": {
+      "_doc": "Смерть моба: влажный сплющ.",
+      "minGapMs": 90,
+      "preset": { "wave": "square", "freqStart": 240, "freqEnd": 60, "slideMs": 260, "durationMs": 280, "attackMs": 6, "sustainVol": 0.55, "decayCurve": 2.2, "vibratoHz": 0, "vibratoDepth": 0, "noiseMix": 0.7, "lowpassHz": 1100, "volume": 0.45, "repeats": 1, "repeatGapMs": 0 }
+    },
+    "eliteRoar": {
+      "_doc": "Рык уникального монстра: низкий рык с вибрато (замах/убийство).",
+      "minGapMs": 700,
+      "preset": { "wave": "saw", "freqStart": 95, "freqEnd": 50, "slideMs": 750, "durationMs": 800, "attackMs": 60, "sustainVol": 0.75, "decayCurve": 1.6, "vibratoHz": 11, "vibratoDepth": 0.22, "noiseMix": 0.2, "lowpassHz": 700, "volume": 0.6, "repeats": 1, "repeatGapMs": 0 }
+    },
+    "heartbeat": {
+      "_doc": "Сердцебиение: два глухих толчка, зациклен при низком HP.",
+      "minGapMs": 100,
+      "preset": { "wave": "sine", "freqStart": 58, "freqEnd": 46, "slideMs": 260, "durationMs": 640, "attackMs": 8, "sustainVol": 0.9, "decayCurve": 2.8, "vibratoHz": 0, "vibratoDepth": 0, "noiseMix": 0.08, "lowpassHz": 0, "volume": 0.85, "repeats": 2, "repeatGapMs": 120 }
+    },
+    "clank": {
+      "_doc": "Панцирь: укус отскакивает от брони.",
+      "minGapMs": 80,
+      "preset": { "wave": "square", "freqStart": 820, "freqEnd": 640, "slideMs": 90, "durationMs": 100, "attackMs": 3, "sustainVol": 0.35, "decayCurve": 3.5, "vibratoHz": 0, "vibratoDepth": 0, "noiseMix": 0.3, "lowpassHz": 3200, "volume": 0.35, "repeats": 1, "repeatGapMs": 0 }
+    },
+    "pickup": {
+      "_doc": "Подбор мутации-кристалла: подъём.",
+      "minGapMs": 60,
+      "preset": { "wave": "sine", "freqStart": 520, "freqEnd": 980, "slideMs": 190, "durationMs": 200, "attackMs": 6, "sustainVol": 0.6, "decayCurve": 2, "vibratoHz": 0, "vibratoDepth": 0, "noiseMix": 0, "lowpassHz": 0, "volume": 0.35, "repeats": 1, "repeatGapMs": 0 }
+    },
+    "gene": {
+      "_doc": "Золотой геном (с уникального): мерцающий аккорд.",
+      "minGapMs": 300,
+      "preset": { "wave": "triangle", "freqStart": 660, "freqEnd": 1320, "slideMs": 380, "durationMs": 420, "attackMs": 10, "sustainVol": 0.65, "decayCurve": 1.8, "vibratoHz": 7, "vibratoDepth": 0.06, "noiseMix": 0, "lowpassHz": 0, "volume": 0.42, "repeats": 1, "repeatGapMs": 0 }
+    },
+    "levelup": {
+      "_doc": "Уровень роста: восходящий сигнал.",
+      "minGapMs": 300,
+      "preset": { "wave": "square", "freqStart": 200, "freqEnd": 560, "slideMs": 300, "durationMs": 320, "attackMs": 10, "sustainVol": 0.55, "decayCurve": 2, "vibratoHz": 0, "vibratoDepth": 0, "noiseMix": 0.08, "lowpassHz": 2400, "volume": 0.4, "repeats": 1, "repeatGapMs": 0 }
+    },
+    "hiss": {
+      "_doc": "Выстрел спор жнеца: шипение (гайд: «укус, чавканье, шипение, рык»).",
+      "minGapMs": 120,
+      "preset": { "wave": "noise", "freqStart": 500, "freqEnd": 300, "slideMs": 0, "durationMs": 250, "attackMs": 12, "sustainVol": 0.7, "decayCurve": 1.8, "vibratoHz": 0, "vibratoDepth": 0, "noiseMix": 0.95, "lowpassHz": 4500, "volume": 0.32, "repeats": 1, "repeatGapMs": 0 }
+    },
+    "fire": {
+      "_doc": "Огненная лужа лавового ползуна: потрескивание.",
+      "minGapMs": 250,
+      "preset": { "wave": "noise", "freqStart": 300, "freqEnd": 180, "slideMs": 0, "durationMs": 330, "attackMs": 10, "sustainVol": 0.5, "decayCurve": 2.4, "vibratoHz": 0, "vibratoDepth": 0, "noiseMix": 0.9, "lowpassHz": 1500, "volume": 0.3, "repeats": 1, "repeatGapMs": 0 }
+    },
+    "uiClick": {
+      "_doc": "Клик по интерфейсу (меню, ползунки громкости).",
+      "minGapMs": 40,
+      "preset": { "wave": "triangle", "freqStart": 700, "freqEnd": 620, "slideMs": 40, "durationMs": 50, "attackMs": 2, "sustainVol": 0.4, "decayCurve": 3, "vibratoHz": 0, "vibratoDepth": 0, "noiseMix": 0, "lowpassHz": 0, "volume": 0.25, "repeats": 1, "repeatGapMs": 0 }
+    }
+  },
+  "music": {
+    "_doc": "Пресеты процедурных петель (синтез — см. systems/sfxr.ts: HumConfig/DripsConfig/CombatConfig/DepthConfig). Все петли бесшовные (LFO-периоды кратны длине).",
+    "hum": {
+      "_doc": "Гул пещеры: низкий кластер синусов [Гц, амплитуда, период LFO c] + шумовое ложе.",
+      "durationSec": 6,
+      "voices": [[48, 0.5, 6], [55.5, 0.32, 4], [73.4, 0.18, 3]],
+      "bedVol": 0.06,
+      "lowpassHz": 300,
+      "volume": 0.5
+    },
+    "drips": {
+      "_doc": "Капли в темноте: пинги со спадом высоты и эхом.",
+      "durationSec": 8,
+      "count": 6,
+      "freqMin": 900,
+      "freqMax": 1500,
+      "dripMs": 190,
+      "echoVol": 0.35,
+      "echoDelayMs": 340,
+      "volume": 0.5
+    },
+    "combat": {
+      "_doc": "Слой боя: бочка + диссонансные схватки (Гц1 близко к Гц2 = биения тревоги) + шляпы.",
+      "bpm": 132,
+      "beats": 16,
+      "kickFreq": [82, 40],
+      "kickMs": 200,
+      "stabFreq": [110, 116.5],
+      "stabMs": 220,
+      "stabBeats": [4, 12],
+      "hatMs": 35,
+      "hatVol": 0.12,
+      "volume": 0.8
+    },
+    "depth": {
+      "_doc": "Слой глубины (600 м+): холодный пэд-кластер с тремоло + редкий высокий колокол.",
+      "durationSec": 12,
+      "chord": [[110, 0.5], [164.8, 0.34], [220, 0.22]],
+      "tremoloSec": 6,
+      "chimeFreq": 1568,
+      "chimeAt": 0.42,
+      "chimeMs": 2200,
+      "lowpassHz": 900,
+      "volume": 0.5
+    }
+  }
+}

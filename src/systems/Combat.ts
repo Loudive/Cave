@@ -115,6 +115,7 @@ export class Combat {
     body.velocity.x = facing * p.biteLungeSpeed
 
     this.creature.biteActiveVisual()
+    this.onBiteSwing?.()
     this.checkHits()
   }
 
@@ -152,6 +153,8 @@ export class Combat {
     const dmgType: import('../config/enemies').DamageType = this.vitals.biteAcid ? 'acid' : 'physical'
     const applied = enemy.takeDamage(this.vitals.biteDamage, facing, this.mods.stunMs, dmgType, 'player')
     const killed = enemy.dead
+    // Шаг 10: урон полностью срезан броней — металл-панцирь «кланк».
+    if (applied <= 0 && !killed) this.onArmorClank?.()
 
     // Кровь в сторону укуса + на пол под жертвой.
     this.blood.burst(enemy.x, enemy.y, {
@@ -185,6 +188,10 @@ export class Combat {
 
   /** Шаг 9: тяжёлый урон — сцена включает хроматику. */
   onHeavyHit: ((damage: number) => void) | null = null
+  /** Шаг 10: начало выпада укуса (сцена играет звук). */
+  onBiteSwing: (() => void) | null = null
+  /** Шаг 10: урон полностью поглощен броней (панцирь — «кланк»). */
+  onArmorClank: (() => void) | null = null
 
   /** Урон игроку: мигание неуязвимости возвращает интервал. */
   hurtPlayer(damage: number, cause = 'пещера'): number {

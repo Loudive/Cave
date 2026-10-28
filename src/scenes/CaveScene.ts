@@ -24,6 +24,7 @@ import { Combat } from '../systems/Combat'
 import { Mutations } from '../systems/Mutations'
 import { Hud } from '../systems/Hud'
 import { FpsGuard } from '../systems/FpsGuard'
+import { AudioSystem } from '../systems/Audio'
 import { QUALITY } from '../systems/quality'
 import { buildCaveTilemap } from '../systems/TileBuilder'
 import { generateCave, biomeIndexAtMeters, type CaveData } from '../gen/cave'
@@ -65,6 +66,7 @@ export class CaveScene extends Phaser.Scene {
   private debug!: DebugOverlay
   private miniMap!: MiniMap
   private fpsGuard!: FpsGuard
+  private audio!: AudioSystem
   private hudText!: Phaser.GameObjects.Text
   private lastHudLine = ''
   private hudBars!: Hud
@@ -153,6 +155,10 @@ export class CaveScene extends Phaser.Scene {
     // ── Атмосфера (шаг 5) ───────────────────────────────────────────────────
     this.buildParallax()
     this.hitStop = new HitStop(this)
+    // Шаг 10: звук и музыка. Пещера открывается кликом из меню —
+    // WebAudio уже разблокирован жестом, эмбиент можно запускать сразу.
+    this.audio = new AudioSystem(this)
+    this.audio.ensureAmbient()
     this.mask = new DarknessMask(this)
 
     this.buildBackgroundRocks()
@@ -215,6 +221,8 @@ export class CaveScene extends Phaser.Scene {
     )
     this.eating.onChew = () => {
       this.creature.chewVisual()
+      // Шаг 10: чавканье — «вызывает удовольствие, а не раздражение».
+      this.audio.play('chew')
       // Шаг 9: вспышка поедания у пасти.
       this.vfx.eatFlash(
         this.creature.x + this.creature.facing * 10,
@@ -224,6 +232,7 @@ export class CaveScene extends Phaser.Scene {
     }
     this.eating.onCarcassFinished = (x, y) => {
       // Туша доедена: тёплый всплеск сытости (гайд: «вспышка света при поедании»).
+      this.audio.play('gulp')
       this.vfx.eatFlash(x, y, 0.9)
       this.cameras.main.flash(140, 120, 62, 46)
     }
@@ -265,6 +274,7 @@ export class CaveScene extends Phaser.Scene {
     // Рост: существо visibly увеличивается, свет на миг вспыхивает.
     this.vitals.onLevelUp = (level) => {
       this.creature.applyGrowth(this.vitals.bodyScale)
+      this.audio.play('levelup')
       this.blood.burst(this.creature.x, this.creature.y, {
         count: 22, dirDeg: 90, spreadDeg: 360, speedMult: 0.9,
         texture: 'spore', sticky: false,
@@ -274,6 +284,7 @@ export class CaveScene extends Phaser.Scene {
     }
     // «Второе сердце»: смертельный урон погашен.
     this.vitals.onSecondHeart = () => {
+      this.audio.play('gene')
       this.blood.number(this.creature.x, this.creature.y - 34, 'ВТОРОЕ СЕРДЦЕ', '#B36BFF', true)
       this.cameras.main.flash(220, 255, 138, 148)
     }
@@ -509,6 +520,20 @@ export class CaveScene extends Phaser.Scene {
     )
     this.mask.setHeartbeat(heartbeat)
 
+    // Шаг 10: кроссфейд музыки (бой/глубина) + сердцебиение при тревоге.
+    // Угроза = игрок атакует или кто-то целится/преследует/замахивается.
+    let combatActive = this.combat.state !== 'ready'
+    for (const e of this.enemies) {
+      if (e.dead) continue
+      const st = e.aiState
+      if (st === 'pursue' || st === 'windup' || st === 'attack') {
+        combatActive = true
+        break
+      }
+    }
+    const metersNow = Math.max(0, Math.floor(this.cave.depthOffsetMeters + this.creature.y * GEN.map.metersPerPixel))
+    this.audio.update(time, this.game.loop.delta, combatActive, metersNow, heartbeat)
+
     this.hudBars.update(delta)
 
     // Страховка: ниже мира быть не должно.
@@ -533,6 +558,11 @@ export class CaveScene extends Phaser.Scene {
   private handleEnemyDeath(enemy: Enemy, killer: KillerKind): void {
     const idx = this.enemies.indexOf(enemy)
     if (idx >= 0) this.enemies.splice(idx, 1)
+
+    // Шаг 10: смерть моба (гайд: «смерть моба» в списке SFX); уникальный —
+    // уходит под собственный рык.
+    this.audio.play('mobDeath')
+    if (enemy.elite) this.audio.play('eliteRoar')
 
     const b = BALANCE.blood
     const mult = killer === 'player' ? 1 : 0.7
@@ -572,6 +602,8 @@ export class CaveScene extends Phaser.Scene {
 
   /** Мутация подобрана: сцена вешает хуки на Creature и свой mods. */
   private applyMutation(def: import('../config/mutations').MutationDef): void {
+    // Шаг 10: подбор кристалла-мутации.
+    this.audio.play(def.rarity === 'legendary' ? 'gene' : 'pickup')
     const e = def.effect
     switch (e.type) {
       case 'grip':
@@ -813,6 +845,8 @@ export class CaveScene extends Phaser.Scene {
     return {
       onPlayerBitten: (damage, _x, attacker) => {
         const applied = this.combat.hurtPlayer(damage)
+        // Шаг 10: боль игрока (гайд: «боль» в списке SFX).
+        if (applied > 0) this.audio.play('pain')
         if (applied > 0 && this.sceneMods.thorns > 0 && !attacker.dead) {
           this.combat.reflectThorns(attacker)
         }
@@ -831,11 +865,20 @@ export class CaveScene extends Phaser.Scene {
         this.blood.number(victim.x, victim.y - 14, `${applied}`, bloodCol)
         void attacker
       },
-      onShootSpores: (attacker, tx, ty) => this.spores.fireFrom(attacker, tx, ty),
-      onSpawnFire: (_enemy, x, y) => this.fire.spawn(x, y),
+      onShootSpores: (attacker, tx, ty) => {
+        // Шаг 10: шипение спор (гайд: «шипение»).
+        this.audio.play('hiss')
+        this.spores.fireFrom(attacker, tx, ty)
+      },
+      onSpawnFire: (_enemy, x, y) => {
+        this.audio.play('fire')
+        this.fire.spawn(x, y)
+      },
       onNoise: (enemy, kind) => {
         if (kind === 'eat') this.eco.counters.mobMeals++
         if (kind === 'curl') this.vfx.sparks(enemy.x, enemy.y, 6)
+        // Шаг 10: уникальный рычит на замахе (гайд: «рык уникального»).
+        if (kind === 'windup' && enemy.elite) this.audio.play('eliteRoar')
         this.eco.emitNoise(enemy, kind, this.enemies)
       },
       onDeath: (e, killer) => this.handleEnemyDeath(e, killer),
@@ -1228,6 +1271,8 @@ export class CaveScene extends Phaser.Scene {
   /** Трогаешь геном-кристалл/лунку — ген записывается в localStorage. */
   private grantGeneAt(def: GeneDef, x: number, y: number): void {
     if (!grantGene(def.id, this.geneSave)) return
+    // Шаг 10: золотой геном — свой звук (гайд: «легендарный геном — событие»).
+    this.audio.play('gene')
     this.genesGained.push(def.id)
     if (def.effect.type === 'socket') this.vitals.mutationSlots += 1
     this.mutations.slots = this.vitals.mutationSlots
@@ -1566,6 +1611,13 @@ export class CaveScene extends Phaser.Scene {
       quality: {
         level: () => QUALITY.level,
         toggle: () => QUALITY.toggle(),
+      },
+      // Шаг 10: верификация звука.
+      audio: {
+        state: () => this.audio.state(),
+        play: (name: string) => this.audio.play(name),
+        setMusic: (v: number) => this.audio.setMusicVol(v),
+        setSfx: (v: number) => this.audio.setSfxVol(v),
       },
       dying: () => this.dying,
     }

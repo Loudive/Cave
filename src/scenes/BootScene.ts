@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import { ASSETS, assetUrl } from '../config/assets'
+import { installGeneratedAudio } from '../systems/Audio'
 
 /**
  * BootScene — шаг 2.
@@ -7,6 +8,8 @@ import { ASSETS, assetUrl } from '../config/assets'
  * событийный preload-бар на progress/complete загрузчика Phaser.
  * Программных текстур больше нет — всё приходит файлами (детерминированная
  * генерация: scripts/generate-assets.mjs, npm run assets).
+ * Шаг 10: звук синтезируется в браузере (jsfxr-подход) и грузится
+ * WAV-dataURI — аудиофайлов в репо нет.
  */
 export class BootScene extends Phaser.Scene {
   constructor() {
@@ -23,6 +26,10 @@ export class BootScene extends Phaser.Scene {
     for (const { key, file } of ASSETS) {
       this.load.image(key, assetUrl(file))
     }
+
+    // Шаг 10: SFX + музыка синтезированы в браузере — ставим в кэш напрямую
+    // (декодирование в фоне, без участия загрузчика).
+    installGeneratedAudio(this)
   }
 
   create(): void {

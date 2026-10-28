@@ -1,13 +1,21 @@
 import Phaser from 'phaser'
 import { GENES, loadGeneSave } from '../config/genes'
+import { AudioSystem } from '../systems/Audio'
 
 /**
- * MenuScene — шаг 8.
+ * MenuScene — шаг 8 + звук шага 10.
  * Титульный экран: нейрогенерированный splash-арт (шаг 5+ разрешает
  * нейрогенерацию; Nano Banana Pro, палитра игры), споровое свечение,
  * название, вход в пещеру.
+ * Шаг 10: эмбиент пещеры (гул + капли) и ползунки громкости
+ * «Музыка / Эффекты» с сохранением (гайд: «громкости настраиваются
+ * в меню и сохраняются»). Клик по ползункам НЕ уводит в пещеру.
  */
+const SLIDER_STEPS = 10
+
 export class MenuScene extends Phaser.Scene {
+  private audio!: AudioSystem
+
   constructor() {
     super('Menu')
   }
@@ -18,6 +26,9 @@ export class MenuScene extends Phaser.Scene {
     const cy = height / 2
 
     this.cameras.main.fadeIn(500, 4, 4, 8)
+
+    // Шаг 10: звуковая система (громкости нужны ползункам).
+    this.audio = new AudioSystem(this)
 
     // Splash-арт: хищник в биолюминесцентной пещере (кадр 16:9 — покрывает).
     this.add.image(cx, cy, 'menu-splash')
@@ -71,7 +82,7 @@ export class MenuScene extends Phaser.Scene {
       ease: 'Sine.InOut',
     })
 
-    this.add.text(cx, height - 28, 'шаг 8 — геномы: 20 мутаций, 6 слотов, постоянные гены переживают смерть', {
+    this.add.text(cx, height - 28, 'шаг 10 — звук и музыка: jsfxr-синтез, эмбиент, слои боя/глубины, громкости в меню', {
       fontFamily: 'monospace',
       fontSize: '12px',
       color: '#8A8894',
@@ -90,6 +101,10 @@ export class MenuScene extends Phaser.Scene {
       }).setOrigin(0.5).setAlpha(0.9)
     }
 
+    // Шаг 10: ползунки громкости над строкой подсказки.
+    const sliderY = height - 118
+    this.buildVolumeSliders(cx, sliderY)
+
     // Виньетка поверх всего.
     const vig = this.add.image(cx, cy, 'vignette')
     vig.setDisplaySize(width * 1.15, height * 1.15)
@@ -102,8 +117,75 @@ export class MenuScene extends Phaser.Scene {
       })
     }
 
-    this.input.once(Phaser.Input.Events.POINTER_DOWN, enterCave)
-    this.input.keyboard?.once('keydown', enterCave)
+    // Один обработчик клика: эмбиент стартует первым жестом (автоплей-
+    // политика), клик ВНЕ зоны ползунков уводит в пещеру, по ползункам —
+    // только настраивает громкость.
+    this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
+      this.audio.ensureAmbient()
+      if (!this.inSliderZone(pointer, sliderY)) enterCave()
+    })
+    this.input.keyboard?.once('keydown', () => {
+      this.audio.ensureAmbient()
+      enterCave()
+    })
+  }
+
+  /** Зона ползунков громкости (клики внутри — не вход в пещеру). */
+  private inSliderZone(pointer: Phaser.Input.Pointer, sliderY: number): boolean {
+    const { width } = this.scale
+    const rowW = 190
+    return pointer.x > width / 2 - rowW / 2 - 64
+      && pointer.x < width / 2 + rowW / 2 + 8
+      && pointer.y > sliderY - 14
+      && pointer.y < sliderY + 34
+  }
+
+  /**
+   * Две строки-ползунка: «МУЗЫКА» и «ЭФФЕКТЫ», 10 сегментов.
+   * Кликом ставится громкость (сохраняется в localStorage сразу),
+   * звук-подтверждение играет с новой громкостью — слышно до входа.
+   */
+  private buildVolumeSliders(cx: number, y: number): void {
+    const rowW = 190
+    const segW = (rowW - SLIDER_STEPS + 1) / SLIDER_STEPS
+
+    const makeRow = (label: string, yOff: number, getV: () => number, setV: (v: number) => void): void => {
+      this.add.text(cx - rowW / 2 - 8, yOff + 3, label, {
+        fontFamily: 'monospace', fontSize: '11px', color: '#8A8894',
+      }).setOrigin(1, 0)
+
+      const current = Math.round(getV() * SLIDER_STEPS)
+      const segs: Phaser.GameObjects.Rectangle[] = []
+      for (let i = 0; i < SLIDER_STEPS; i++) {
+        const on = i < current
+        const seg = this.add.rectangle(
+          cx - rowW / 2 + segW / 2 + i * (segW + 1), yOff + 8, segW, 10,
+          on ? 0x58e6c8 : 0x1a1a26, on ? 0.85 : 0.9,
+        )
+        seg.setStrokeStyle(1, 0x2a2a3a)
+        seg.setInteractive({ useHandCursor: true })
+        seg.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
+          // Громкость по месту клика: доля строки, округлённая к 1/10.
+          const rel = (pointer.x - (cx - rowW / 2)) / rowW
+          const value = Phaser.Math.Clamp(Math.round(rel * SLIDER_STEPS) / SLIDER_STEPS, 0, 1)
+          setV(value)
+          const filled = Math.round(value * SLIDER_STEPS)
+          for (let idx = 0; idx < segs.length; idx++) {
+            segs[idx].setFillStyle(idx < filled ? 0x58e6c8 : 0x1a1a26, idx < filled ? 0.85 : 0.9)
+          }
+          // Звук-подтверждение слышен с новой громкостью.
+          this.audio.play('uiClick')
+        })
+        segs.push(seg)
+      }
+    }
+
+    makeRow('МУЗЫКА', y, () => this.audio.volumes.music, (v) => this.audio.setMusicVol(v))
+    makeRow('ЭФФЕКТЫ', y + 20, () => this.audio.volumes.sfx, (v) => this.audio.setSfxVol(v))
+
+    this.add.text(cx, y + 44, 'громкость сохраняется между забегами', {
+      fontFamily: 'monospace', fontSize: '9px', color: '#5A5866',
+    }).setOrigin(0.5).setAlpha(0.8)
   }
 
   /** Споры светятся, медленно дышат и дрейфуют. */
