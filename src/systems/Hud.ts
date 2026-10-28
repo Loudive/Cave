@@ -23,6 +23,10 @@ const BAR_Y = 14
 const BAR_W = 150
 const BAR_H = 10
 
+// Шаг 13 (Dead Cells): серия укусов — верх по центру.
+const COMBO_Y = 12
+const COMBO_BAR_W = 130
+
 export class Hud {
   private gfx: Phaser.GameObjects.Graphics
   private slotsGfx: Phaser.GameObjects.Graphics
@@ -36,6 +40,12 @@ export class Hud {
   private lastLevelLine = ''
   private lastOwnedCount = -1
 
+  // ── Шаг 13: серия укусов ─────────────────────────────────────────────
+  private comboText: Phaser.GameObjects.Text
+  private comboGfx: Phaser.GameObjects.Graphics
+  private lastComboLine = ''
+  private lastComboRatio = -1
+
   constructor(
     private scene: Phaser.Scene,
     private vitals: Vitals,
@@ -45,6 +55,18 @@ export class Hud {
     this.gfx = scene.add.graphics().setScrollFactor(0).setDepth(DEPTH_HUD)
     // Рамки слотов статичны — отдельный Graphics, рисуется один раз.
     this.slotsGfx = scene.add.graphics().setScrollFactor(0).setDepth(DEPTH_HUD)
+
+    // Шаг 13: серия укусов — текст + полоска затухания окна.
+    this.comboGfx = scene.add.graphics().setScrollFactor(0).setDepth(DEPTH_HUD)
+    this.comboText = scene.add.text(scene.scale.width / 2, COMBO_Y, '', {
+      fontFamily: 'monospace',
+      fontSize: '14px',
+      fontStyle: 'bold',
+      color: '#E8A34F',
+      stroke: '#0b0b10',
+      strokeThickness: 3,
+    }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(DEPTH_HUD)
+
     this.levelText = scene.add.text(BAR_X, BAR_Y + BAR_H + 16, '', {
       fontFamily: 'monospace',
       fontSize: '11px',
@@ -230,5 +252,36 @@ export class Hud {
   /** Сколько пикселей занимает HUD слева (для мини-карты и прочего). */
   static get reservedHeight(): number {
     return 84
+  }
+
+  /**
+   * Шаг 13 (Dead Cells): счётчик серии. Рисуется только с minHits-го удара
+   * (первые — «разогрев»); полоска под текстом — остаток окна серии.
+   */
+  updateCombo(hits: number, mult: number, windowRatio: number): void {
+    const c = BALANCE.combo
+    const show = hits >= c.minHits && windowRatio > 0
+    const line = show
+      ? `СЕРИЯ ×${hits}  ·  УРОН +${Math.round((mult - 1) * 100)}%`
+      : ''
+    if (line !== this.lastComboLine) {
+      this.lastComboLine = line
+      this.comboText.setText(line)
+      this.comboText.setVisible(show)
+    }
+    const qRatio = Hud.quant(windowRatio)
+    if (qRatio !== this.lastComboRatio) {
+      this.lastComboRatio = qRatio
+      const g = this.comboGfx
+      g.clear()
+      if (show) {
+        const x = this.scene.scale.width / 2 - COMBO_BAR_W / 2
+        const y = COMBO_Y + 18
+        g.fillStyle(0x1a1a26, 0.9)
+        g.fillRect(x, y, COMBO_BAR_W, 3)
+        g.fillStyle(0xe8a34f, 0.95)
+        g.fillRect(x, y, COMBO_BAR_W * windowRatio, 3)
+      }
+    }
   }
 }

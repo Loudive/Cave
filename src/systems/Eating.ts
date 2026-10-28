@@ -23,6 +23,8 @@ export interface Carcass {
   meatLeft: number
   meatTotal: number
   bornAt: number
+  /** Шаг 13 (Carrion): следующее подёргивание мёртвого мяса (мс сцены). */
+  nextTwitchAt: number
 }
 
 const DEPTH_CARCASS = 2
@@ -88,7 +90,14 @@ export class Eating {
       meatLeft: sp.meat,
       meatTotal: sp.meat,
       bornAt: this.scene.time.now,
+      nextTwitchAt: this.scheduleTwitch(),
     })
+  }
+
+  /** Шаг 13 (Carrion): пауза до следующего подёргивания туши. */
+  private scheduleTwitch(): number {
+    const t = BALANCE.twitch
+    return this.scene.time.now + Phaser.Math.Between(t.minMs, t.maxMs)
   }
 
   // ── Шаг 7: туши для мобов (экосистема ест падаль и соревнуется с игроком)
@@ -175,12 +184,26 @@ export class Eating {
       }
     }
 
-    // Подсказки над тушами в радиусе доедания.
+    // Подсказки над тушами в радиусе доедания + подёргивания мяса (шаг 13).
     for (const c of this.carcasses) {
       const d = Phaser.Math.Distance.Between(playerX, playerY, c.sprite.x, c.sprite.y)
       const show = d <= BALANCE.player.biteRange + 14 && c !== this.chewing
       c.hint.setText(show ? 'укус — съесть' : '')
       c.hint.setPosition(c.sprite.x, c.sprite.y - 20)
+
+      // Carrion: мёртвое мясо ещё живо — редкое короткое сжатие.
+      if (c.meatLeft > 0 && time >= c.nextTwitchAt) {
+        c.nextTwitchAt = this.scheduleTwitch()
+        this.scene.tweens.killTweensOf(c.sprite)
+        this.scene.tweens.add({
+          targets: c.sprite,
+          scaleX: c.sprite.scaleX * 1.12,
+          scaleY: c.sprite.scaleY * 0.86,
+          duration: 90,
+          yoyo: true,
+          ease: 'Quad.Out',
+        })
+      }
     }
   }
 

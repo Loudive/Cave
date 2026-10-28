@@ -50,12 +50,35 @@ export interface GlideConfig {
   glideBrake: number
 }
 
+/** Шаг 13 (Carrion/Dead Cells): сквош-энд-стретч тела на приземлении/отрыве. */
+export interface JuiceConfig {
+  /** Сжатие по X при приземлении (множитель от роста). */
+  landSquashX: number
+  /** Сжатие по Y при приземлении. */
+  landSquashY: number
+  /** Длительность сжатия, мс. */
+  landSquashMs: number
+  /** Падение быстрее этого (px/s) — «жёсткое» приземление со сквошем. */
+  landMinVy: number
+  /** Частиц пыли при жёстком приземлении. */
+  landDustCount: number
+  /** Растяжение по X в момент отрыва от земли. */
+  takeoffStretchX: number
+  /** Растяжение по Y в момент отрыва. */
+  takeoffStretchY: number
+  /** Длительность растяжения, мс. */
+  takeoffMs: number
+  /** Падение быстрее этого — сквош/пыль на максимуме (линейно от landMinVy). */
+  landMaxVy: number
+}
+
 export interface MovementConfig {
   run: RunConfig
   jump: JumpConfig
   wall: WallConfig
   climb: ClimbConfig
   glide: GlideConfig
+  juice: JuiceConfig
   gravity: number
   terminalVelocity: number
   respawnFallY: number

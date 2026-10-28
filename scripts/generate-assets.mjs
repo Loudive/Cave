@@ -1073,3 +1073,42 @@ function rockBase(c, seed, opts) {
 }
 
 console.log('Готово: assets/ обновлён (детерминированно, seed=20261027).')
+
+// ── Шаг 13: пыль приземления и столб света ─────────────────────────────────
+
+/** Пыль 18×18: мягкий серый клуб — частицы жёсткого приземления (Carrion-джус). */
+{
+  const c = new Canvas(18, 18)
+  c.radial(9, 9, 9, [0x8a, 0x88, 0x94], [[0, 0.9], [0.5, 0.5], [1, 0]])
+  const rnd = mulberry32(1313)
+  for (let i = 0; i < 14; i++) {
+    const x = 2 + Math.floor(rnd() * 14)
+    const y = 2 + Math.floor(rnd() * 14)
+    c.px(x, y, [0x6a, 0x68, 0x74], 140)
+  }
+  c.save('dust.png')
+}
+
+/**
+ * Столб света 96×320 (Dead Cells/Hidden Deep): вертикальный луч из трещины
+ * в потолке — у верха узкий и плотный, внизу шире и тает. Горизонтальный
+ * профиль — колокол (яркая ось, мягкие края), вертикальный — затухание к полу.
+ * Тонируется цветом биома; рисуется ADD поверх маски тьмы.
+ */
+{
+  const W = 96
+  const H = 320
+  const c = new Canvas(W, H)
+  for (let y = 0; y < H; y++) {
+    // Расширение к низу (трапеция) + общий спад силы к полу.
+    const spread = 0.34 + 0.66 * (y / H)
+    const vFade = 1 - 0.55 * (y / H)
+    for (let x = 0; x < W; x++) {
+      const nx = (x / W - 0.5) / spread
+      const bell = Math.exp(-nx * nx * 7)
+      const a = Math.round(255 * bell * vFade)
+      if (a > 6) c.px(x, y, [255, 255, 255], a)
+    }
+  }
+  c.save('light-shaft.png')
+}

@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import { BALANCE } from '../config/balance'
+import { ENEMIES } from '../config/enemies'
 import type { Creature } from '../entities/Creature'
 import type { Enemy } from '../entities/Enemy'
 import type { BloodFx } from './BloodFx'
@@ -14,6 +15,10 @@ import type { Eating } from './Eating'
  * «Скорость атаки» из GDD). Попадание: хитстоп 80мс, тряска 4px,
  * выброс крови + декали, число урона, отброс жертвы.
  * Кнопка укуса контекстная: рядом туша — жуём, иначе кусаем.
+ *
+ * Шаг 13 (Dead Cells): серия укусов — попадания без паузы windowMs
+ * наращивают множитель урона (потолок maxMult). Урон по существу
+ * сбрасывает серию: агрессия наказывается болью, награждается уроном.
  */
 export type BiteState = 'ready' | 'windup' | 'active' | 'recover'
 
@@ -61,6 +66,44 @@ export class Combat {
 
   /** Шаг 11: мобы, которых уже кусали хоть раз (для «Охоты из тени»). */
   private everBitten = new Set<Enemy>()
+
+  // ── Шаг 13 (Dead Cells): серия укусов ─────────────────────────────────
+  private comboHits = 0
+  private comboUntil = 0
+  /** Лучшая серия за забег (экран итога/debug). */
+  comboBest = 0
+
+  /** Ударов в текущей серии (окно проверяется по времени). */
+  get combo(): number {
+    return this.scene.time.now <= this.comboUntil ? this.comboHits : 0
+  }
+
+  /** Множитель урона от накопленной серии (1 — серии нет). */
+  get comboMult(): number {
+    const c = BALANCE.combo
+    if (this.comboHits < c.minHits || this.scene.time.now > this.comboUntil) return 1
+    return Math.min(c.maxMult, 1 + (this.comboHits - c.minHits + 1) * c.damageStep)
+  }
+
+  /** Доля остатка окна серии (0..1) — полоска затухания в HUD. */
+  get comboRatio(): number {
+    const left = this.comboUntil - this.scene.time.now
+    return left <= 0 ? 0 : Math.min(1, left / BALANCE.combo.windowMs)
+  }
+
+  /** Попадание засчитано в серию. */
+  private bumpCombo(): void {
+    const now = this.scene.time.now
+    this.comboHits = now <= this.comboUntil ? this.comboHits + 1 : 1
+    this.comboUntil = now + BALANCE.combo.windowMs
+    this.comboBest = Math.max(this.comboBest, this.comboHits)
+  }
+
+  /** Урон существу — серия рвётся (болевой шок). */
+  resetCombo(): void {
+    this.comboHits = 0
+    this.comboUntil = 0
+  }
 
   constructor(
     private scene: Phaser.Scene,
@@ -184,9 +227,17 @@ export class Combat {
     if (this.mods.nightPounce && !this.everBitten.has(enemy)) mult *= 2
     if (this.mods.darkStrikeDist > 0 && dist > this.mods.darkStrikeDist) mult *= 1.25
     this.everBitten.add(enemy)
+    // Шаг 13 (Dead Cells): серия укусов накачивает урон.
+    mult *= this.comboMult
     const base = Math.round(this.vitals.biteDamage * mult)
     const applied = enemy.takeDamage(base, facing, this.mods.stunMs, dmgType, 'player')
     const killed = enemy.dead
+    // Попадание (не срезанное бронёй) — серия растёт; убийство — тоже.
+    if (applied > 0) this.bumpCombo()
+    // Шаг 13 (Dead Cells): оверкилл — убойный урон рвёт жертву на куски.
+    if (killed && applied >= enemy.maxHp * ENEMIES.gib.overkillShare) {
+      enemy.overkilled = true
+    }
     // Шаг 10: урон полностью срезан броней — металл-панцирь «кланк».
     if (applied <= 0 && !killed) this.onArmorClank?.()
 
@@ -239,6 +290,8 @@ export class Combat {
       // Шаг 9: тяжёлый удар (≥12 или до половины HP) — рывок хроматики.
       if (damage >= 12 || this.vitals.hpRatio < 0.5) this.onHeavyHit?.(damage)
       this.invulnUntil = now + p.invulnAfterHitMs
+      // Шаг 13: боль рвёт серию укусов.
+      this.resetCombo()
       // Шаг 12: удар сбивает со стены — сцеп теряется (гравитация назад).
       this.creature.forceUncling()
       this.creature.hurtVisual(p.invulnAfterHitMs)

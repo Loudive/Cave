@@ -72,6 +72,9 @@ export const ASSETS: AssetEntry[] = [
   { key: 'ring', file: 'ring.png' },
   // Juice (шаг 9): искры для бёрстов.
   { key: 'spark', file: 'spark.png' },
+  // Шаг 13: пыль приземления (сквош-джус) и столбы света из потолочных трещин.
+  { key: 'dust', file: 'dust.png' },
+  { key: 'light-shaft', file: 'light-shaft.png' },
   // Нейрогенерация (шаг 5+ разрешена): splash-арт меню, палитра игры.
   { key: 'menu-splash', file: 'menu-splash.jpg' },
   // Пост-эффекты.

@@ -32,6 +32,12 @@ export interface GenConfig {
     rows: number
     tile: number
     metersPerPixel: number
+    /** Шаг 13: радиус открытия тумана войны (тайлов) вокруг существа. */
+    revealTiles: number
+    /** Шаг 13: сколько мс держать M для полной карты. */
+    bigMapHoldMs: number
+    /** Шаг 13: множитель увеличения полной карты. */
+    bigMapScale: number
   }
   ca: {
     fillProb: number

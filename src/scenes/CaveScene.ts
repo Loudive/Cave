@@ -361,6 +361,42 @@ export class CaveScene extends Phaser.Scene {
         texture: 'spore', sticky: false,
       })
     }
+    // Шаг 13 (Carrion/Dead Cells): сквош приземления + пыль, стретч отрыва.
+    this.creature.onHardLand = (impactVy) => {
+      const j = MOVEMENT.juice
+      const k = Math.min(1, Math.max(0, (impactVy - j.landMinVy) / (j.landMaxVy - j.landMinVy)))
+      this.tweens.killTweensOf(this.creature)
+      this.tweens.add({
+        targets: this.creature,
+        scaleX: this.vitals.bodyScale * (1 + (j.landSquashX - 1) * k),
+        scaleY: this.vitals.bodyScale * (1 - (1 - j.landSquashY) * k),
+        duration: j.landSquashMs,
+        yoyo: true,
+        ease: 'Quad.Out',
+        onComplete: () => this.creature.setScale(this.vitals.bodyScale),
+      })
+      this.blood.burst(this.creature.x, this.creature.y + 10, {
+        count: Math.round(j.landDustCount * (0.6 + k * 0.6)),
+        dirDeg: 90,
+        spreadDeg: 150,
+        speedMult: 0.45,
+        texture: 'dust',
+        sticky: false,
+      })
+    }
+    this.creature.onTakeoff = () => {
+      const j = MOVEMENT.juice
+      this.tweens.killTweensOf(this.creature)
+      this.tweens.add({
+        targets: this.creature,
+        scaleX: this.vitals.bodyScale * j.takeoffStretchX,
+        scaleY: this.vitals.bodyScale * j.takeoffStretchY,
+        duration: j.takeoffMs,
+        yoyo: true,
+        ease: 'Quad.Out',
+        onComplete: () => this.creature.setScale(this.vitals.bodyScale),
+      })
+    }
 
     this.mask.setPlayer(this.mask.add({
       x: () => this.creature.x,
@@ -369,6 +405,8 @@ export class CaveScene extends Phaser.Scene {
       radius: LIGHT.playerLight.radius,
       radiusMult: () => this.sceneMods.lightMult,
       breathe: true,
+      // Шаг 13 (Hidden Deep): «взгляд хищника» — свет длиннее вперёд по морде.
+      gazeDir: () => this.creature.facing,
     }))
 
     // ── Содержимое пещеры ───────────────────────────────────────────────────
@@ -376,6 +414,8 @@ export class CaveScene extends Phaser.Scene {
     this.buildNests()
     this.buildAmbientSpores()
     this.buildExitGate()
+    // Шаг 13 (Dead Cells): столбы света из потолочных трещин (верхняя полоса).
+    this.buildLightShafts()
     this.motes = new SilhouetteMotes(this, this.cave, this.mask)
 
     // Добыча у гнёзд шага 4 + гарантированная еда у входа.
@@ -437,18 +477,6 @@ export class CaveScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setDepth(22)
 
-    // Шаг 11: счётчик Эссенции этого забега (обновляется только сменой строки).
-    this.essenceHud = this.add.text(width - 10, 52, '', {
-      fontFamily: 'monospace',
-      fontSize: '13px',
-      fontStyle: 'bold',
-      color: '#E8A34F',
-      align: 'right',
-    })
-      .setOrigin(1, 0)
-      .setScrollFactor(0)
-      .setDepth(22)
-
     this.add.text(12, height - 14,
       'A/D — бег · SPACE — прыжок · W — план · J/ЛКМ — укус · R — та же пещера · N — новая · M — карта · Q — качество · ESC — меню',
       { fontFamily: 'monospace', fontSize: '11px', color: '#8A8894' },
@@ -459,6 +487,8 @@ export class CaveScene extends Phaser.Scene {
       .setAlpha(0.8)
 
     this.miniMap = new MiniMap(this, this.cave)
+    // Шаг 13: заголовок большой карты — слой и seed.
+    this.miniMap.setLayerInfo(`слой ${this.depth} · seed ${this.seedBase}`)
     // Шаг 10: наблюдатель FPS — на слабых устройствах сам включает «низкое».
     this.fpsGuard = new FpsGuard(this)
 
@@ -660,6 +690,10 @@ export class CaveScene extends Phaser.Scene {
       this.audio.update(time, this.game.loop.delta, combatActive, metersNow, heartbeat)
 
       this.hudBars.update(delta)
+      // Шаг 13 (Dead Cells): серия укусов — счётчик и полоска окна.
+      this.hudBars.updateCombo(this.combat.combo, this.combat.comboMult, this.combat.comboRatio)
+      // Шаг 13 (Carrion): раненое существо кровоточит на ходу.
+      this.updateWoundDrip(time)
 
       // Страховка: ниже мира быть не должно.
       if (!this.dying && this.creature.y > this.worldH + 300) {
@@ -685,6 +719,29 @@ export class CaveScene extends Phaser.Scene {
   private addEssence(amount: number, x: number, y: number): void {
     this.runEssence += amount
     this.blood.number(x, y - 26, `+${amount}◈`, '#E8A34F')
+  }
+
+  /** Шаг 13: следующая капля раненого существа (мс сцены). */
+  private woundDripNextAt = 0
+
+  /**
+   * Шаг 13 (Carrion): горе видно на слух и на полу — ниже woundDrip.hpBelow
+   * HP существо капает кровью на ходу (изредка оставляя декаль). Не в
+   * статике: раненый хищник, который бежит, — метит тоннель кровью.
+   */
+  private updateWoundDrip(time: number): void {
+    const w = BALANCE.woundDrip
+    if (time < this.woundDripNextAt) return
+    this.woundDripNextAt = time + w.intervalMs
+    if (!this.vitals.alive || this.vitals.hpRatio >= w.hpBelow) return
+    const body = this.creature.body as Phaser.Physics.Arcade.Body
+    if (Math.hypot(body.velocity.x, body.velocity.y) < w.minSpeed) return
+    this.blood.burst(this.creature.x, this.creature.y + 6, {
+      count: 2, dirDeg: 90, spreadDeg: 60, speedMult: 0.5,
+    })
+    if (Math.random() < w.decalChance) {
+      this.blood.decal(this.creature.x + Phaser.Math.Between(-6, 6), this.creature.y + 12, 0.7)
+    }
   }
 
   /** Шаг 11: поведенческие перки Гнезда (тиковая логика — из update). */
@@ -768,7 +825,29 @@ export class CaveScene extends Phaser.Scene {
       return
     }
 
-    this.eating.spawnCarcass(enemy.speciesId, enemy.x, enemy.y)
+    // Шаг 13 (Dead Cells): оверкилл — жертву РАЗРЫВАЕТ: туши нет, вместо
+    // неё фонтан мяса + большая декаль + съедобные сгустки. На высоких
+    // уровнях роста укус рвёт добычу сразу — темп боя не падает на жевание.
+    if (enemy.overkilled) {
+      const gib = ENEMIES.gib
+      this.blood.explode(enemy.x, enemy.y, Math.round(gib.chunkCount * 1.4))
+      this.blood.burst(enemy.x, enemy.y, {
+        count: gib.chunkCount,
+        dirDeg: 90,
+        spreadDeg: 360,
+        speedMult: 1.2,
+        texture: 'meat-chunk',
+        sticky: false,
+      })
+      this.blood.spawnClots(
+        enemy.x, enemy.y,
+        Phaser.Math.Between(gib.clotsPerGib[0], gib.clotsPerGib[1]),
+      )
+      this.blood.decal(enemy.x, enemy.y + 8, gib.decalScale)
+      this.vfx.eatFlash(enemy.x, enemy.y, 1.1)
+    } else {
+      this.eating.spawnCarcass(enemy.speciesId, enemy.x, enemy.y)
+    }
     this.eco.ring(enemy.x, enemy.y, enemy.species.noiseColor, 0.6)
     this.eco.onMobDeath(enemy.nestIndex)
     if (killer === 'player') {
@@ -963,6 +1042,7 @@ export class CaveScene extends Phaser.Scene {
       `рацион: ${eatenLine}`,
       `рост существа — уровень ${this.vitals.level}`,
       `мутаций внедрено — ${this.vitals.mutationsCount}`,
+      `лучшая серия укусов — ×${this.combat.comboBest}`,
       `максимальная глубина — ${this.maxMeters} м`,
       `на чём погиб: ${this.vitals.lastDamageCause}`,
       '',
@@ -1380,6 +1460,8 @@ export class CaveScene extends Phaser.Scene {
         y: () => y - 9,
         radius: LIGHT.mushroomLight.radius,
         scaleNow: () => glow.scaleX / 0.8,
+        // Шаг 13 (Hidden Deep): каждая лампа мерцает по-своему (детерминировано).
+        flicker: (i + 1) * 0.618,
       })
 
       const sprite = this.add.image(x, y, 'mushroom')
@@ -1516,6 +1598,65 @@ export class CaveScene extends Phaser.Scene {
     this.physics.add.existing(zone, true)
 
     this.physics.add.overlap(this.creature, zone, () => this.descend())
+  }
+
+  /**
+   * Шаг 13 (Dead Cells + Hidden Deep): столбы света из трещин в потолке
+   * верхней полосы биома. Ищем колонны воздуха с потолком над ними
+   * (searchTries попыток), ставим до shafts.count лучей: ADD-спрайт
+   * поверх маски тьмы (луч «прорезает» мрак), мягкий свет у пола и
+   * медленное покачивание — пещера дышит. Маяк «здесь безопасно».
+   */
+  private buildLightShafts(): void {
+    const cfg = LIGHT.shafts
+    const rng = new Rng(hashSeed(this.cave.seed + ':shafts'))
+    const tile = this.cave.tile
+    const bandCol = bandColorInt(GEN.biomeBands[0])
+
+    let placed = 0
+    for (let tries = 0; tries < cfg.searchTries && placed < cfg.count; tries++) {
+      const tx = 1 + rng.int(this.cave.cols - 2)
+      // Верхняя треть карты — биом 0 (там свет «сверху» ещё логичен).
+      const ty = 1 + rng.int(Math.floor(this.cave.rows / 3))
+      const i = ty * this.cave.cols + tx
+      // Воздух с потолком над ним.
+      if (this.cave.solid[i] !== 0) continue
+      if (this.cave.solid[i - this.cave.cols] !== 1) continue
+
+      // Меряем высоту воздушной колонны вниз до пола.
+      let depth = 0
+      while (depth < 20 && this.cave.solid[(ty + depth) * this.cave.cols + tx] === 0) depth++
+      if (depth < 6) continue
+
+      const px = tx * tile + tile / 2
+      const pyTop = ty * tile
+      const heightPx = depth * tile
+      const shaft = this.add.image(px, pyTop, 'light-shaft')
+        .setOrigin(0.5, 0)
+        .setDepth(15)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setTint(bandCol)
+        .setAlpha(cfg.alpha)
+        // Текстура 96×320: ширина 1:1, высота — по колонне.
+        .setScale(1, heightPx / 320)
+      // Медленное покачивание луча — свет «льётся», а не приклеен.
+      this.tweens.add({
+        targets: shaft,
+        angle: { from: -cfg.swayDeg, to: cfg.swayDeg },
+        duration: cfg.swayMs,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.InOut',
+      })
+      // Мягкий свет у пола под лучом (маяк пути) — тоже неровно дышит.
+      this.mask.add({
+        x: () => px,
+        y: () => pyTop + heightPx - 10,
+        radius: cfg.lightRadius,
+        flicker: (placed + 3) * 1.41,
+      })
+      placed++
+    }
   }
 
   // ── Шаг 8: геномы — гены, цветки, лунки, уникальные, спутник ──────────────

@@ -110,12 +110,24 @@ export class Vfx {
 
   // ── Slow-mo уникальных убийств ──────────────────────────────────────────────
 
-  /** «Мир замирает на мгновение величия»: 0.3 c замедления + наезд камеры. */
+  /**
+   * «Мир замирает на мгновение величия»: 0.3 c замедления + наезд камеры.
+   *
+   * Шаг 13 (рёв оранжевого зависания): изинг сюда передаётся ФУНКЦИЕЙ,
+   * не строкой. У эффектов камеры (Zoom/Fade/Pan) своя EaseMap — там НЕТ
+   * новых имён вида 'Sine.Out' (только 'Sine', 'Sine.easeOut', …), а
+   * Zoom.start при незнакомой строке молча оставляет this.ease = undefined.
+   * Первый же кадр эффекта бросал TypeError из CameraManager.update —
+   * вне страховки сцены — и убивал rAF-цепочку Phaser навсегда: экран
+   * застывал (у пользователя — оранжевым, в глубинном биоме). Функция
+   * минует карту имён целиком.
+   */
   uniqueKillSlowMo(): void {
     this.hitStop.slowMo(VFX.slowMoMs)
     const cam = this.scene.cameras.main
-    cam.zoomTo(VFX.slowMoZoom, VFX.slowMoZoomInMs, 'Sine.Out')
-    this.scene.time.delayedCall(VFX.slowMoMs + 20, () => cam.zoomTo(1, VFX.slowMoZoomOutMs, 'Sine.In'))
+    cam.zoomTo(VFX.slowMoZoom, VFX.slowMoZoomInMs, Phaser.Math.Easing.Sine.Out)
+    this.scene.time.delayedCall(VFX.slowMoMs + 20, () =>
+      cam.zoomTo(1, VFX.slowMoZoomOutMs, Phaser.Math.Easing.Sine.In))
     this.chromaticHit(1.4)
   }
 

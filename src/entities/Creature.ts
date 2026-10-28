@@ -116,6 +116,14 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
   // состояние её не перебивает до скрытия спрайта сценой.
   private deathPlaying = false
 
+  // Шаг 13 (Carrion/Dead Cells): сквош-джус — сцена вешает пыль/сжатие.
+  /** Жёсткое приземление (скорость удара ≥ juice.landMinVy, px/s). */
+  onHardLand: ((impactVy: number) => void) | null = null
+  /** Отрыв от земли (прыжок/сход с края). */
+  onTakeoff: (() => void) | null = null
+  private wasOnGround = true
+  private prevVy = 0
+
   // Направление активной стены: -1 левая, 1 правая, 0 нет.
   private wallDir = 0
 
@@ -161,6 +169,18 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
     const body = this.body as Phaser.Physics.Arcade.Body
     const now = this.scene.time.now
     const dt = delta / 1000
+
+    // Шаг 13: детект приземления/отрыва — до логики (в колбеке сцены
+    // пыль и сквош; скорость удара — прошлая вертикаль, ещё не обнулённая
+    // физикой этого кадра).
+    const onGround = body.blocked.down || body.touching.down
+    if (!this.wasOnGround && onGround) {
+      if (this.prevVy >= MOVEMENT.juice.landMinVy) this.onHardLand?.(this.prevVy)
+    } else if (this.wasOnGround && !onGround && body.velocity.y < -40) {
+      this.onTakeoff?.()
+    }
+    this.wasOnGround = onGround
+    this.prevVy = body.velocity.y
 
     this.readWalls(body)
     this.handleTimers(body, now)

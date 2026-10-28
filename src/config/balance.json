@@ -11,7 +11,10 @@
     "mutations": "Мутации из туш: dropChance — шанс 25% (гайд); maxOwned — потолок за забег (слоты — шаг 8).",
     "spawn": "Расселение добычи: entrancePrey — гарантированные слизни у входа (стартовая еда), maxAlive — потолок живых мобов на карте (экосистема шага 7).",
     "spore": "Споры жнеца (шаг 7): slowFactor — насколько замедляется существо в споровой пыли; slowMs — длительность замедления.",
-    "death": "Смерть существа: fadeMs — затемнение, hitstopMs — долгий хитстоп, bloodMultiplier — взрыв крови."
+    "death": "Смерть существа: fadeMs — затемнение, hitstopMs — долгий хитстоп, bloodMultiplier — взрыв крови.",
+    "combo": "Шаг 13 (Dead Cells): серия укусов — быстрые попадания без паузы windowMs наращивают множитель урона: +damageStep за удар, потолок maxMult. Урон/окно сбрасывают серию. Серия стартует с minHits-го удара (первые удары — «разогрев», без множителя).",
+    "woundDrip": "Шаг 13 (Carrion): раненое существо кровоточит — ниже hpBelow доли HP при движении капает кровь (каждые intervalMs), изредка оставляя декаль (decalChance). Горе-стойкость без молчания. minSpeed — кровоточит только на ходу (медленнее — рана «затянута», не спамим частицами).",
+    "twitch": "Шаг 13 (Carrion): туши подёргиваются — мёртвое мясо ещё живо. Каждые minMs..maxMs случайная туша вздрагивает коротким сжатием (если не доедена)."
   },
   "player": {
     "maxHp": 100,
@@ -67,8 +70,14 @@
     "killShakeMs": 160
   },
   "blood": {
-    "particlesPerHit": [14, 22],
-    "particlesPerKill": [42, 60],
+    "particlesPerHit": [
+      14,
+      22
+    ],
+    "particlesPerKill": [
+      42,
+      60
+    ],
     "speedMin": 60,
     "speedMax": 330,
     "lifespanMin": 350,
@@ -78,7 +87,10 @@
     "decalDarkenMs": 6000,
     "decalLifeMs": 30000,
     "maxDecals": 220,
-    "clotsPerKill": [4, 7]
+    "clotsPerKill": [
+      4,
+      7
+    ]
   },
   "mutations": {
     "dropChance": 0.25,
@@ -96,5 +108,21 @@
     "hitstopMs": 260,
     "fadeMs": 700,
     "bloodMultiplier": 2.2
+  },
+  "combo": {
+    "windowMs": 950,
+    "damageStep": 0.16,
+    "maxMult": 1.8,
+    "minHits": 2
+  },
+  "woundDrip": {
+    "hpBelow": 0.35,
+    "intervalMs": 360,
+    "decalChance": 0.3,
+    "minSpeed": 20
+  },
+  "twitch": {
+    "minMs": 2600,
+    "maxMs": 7200
   }
 }

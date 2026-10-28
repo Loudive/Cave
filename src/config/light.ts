@@ -25,6 +25,25 @@ export interface LightConfig {
     breatheAmp: number
     breathePeriodMs: number
   }
+  /** Шаг 13 (Hidden Deep): вытяжение света существа вперёд по взгляду. */
+  gaze: {
+    stretch: number
+  }
+  /** Шаг 13 (Hidden Deep): неровное мерцание сидированных источников. */
+  flicker: {
+    amp: number
+    speedMs: number
+    minShare: number
+  }
+  /** Шаг 13 (Dead Cells): столбы света из потолочных трещин. */
+  shafts: {
+    count: number
+    alpha: number
+    swayDeg: number
+    swayMs: number
+    lightRadius: number
+    searchTries: number
+  }
   mushroomLight: { radius: number }
   gateLight: { radius: number }
   nestLight: { radius: number }

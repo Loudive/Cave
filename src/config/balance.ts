@@ -102,6 +102,33 @@ export interface DeathBalance {
   bloodMultiplier: number
 }
 
+/** Шаг 13 (Dead Cells): серия быстрых укусов — множитель урона растёт. */
+export interface ComboBalance {
+  /** Окно между ударами, чтобы серия жила, мс. */
+  windowMs: number
+  /** Прибавка множителя за удар серии. */
+  damageStep: number
+  /** Потолок множителя. */
+  maxMult: number
+  /** Серия считается (и множитель растёт) с этого удара. */
+  minHits: number
+}
+
+/** Шаг 13 (Carrion): раненое существо кровоточит на ходу. */
+export interface WoundDripBalance {
+  hpBelow: number
+  intervalMs: number
+  decalChance: number
+  /** Медленнее этого — рана не каплет (не спамим частицами в статике). */
+  minSpeed: number
+}
+
+/** Шаг 13 (Carrion): подёргивание туши — мёртвое мясо живо. */
+export interface TwitchBalance {
+  minMs: number
+  maxMs: number
+}
+
 export interface BalanceConfig {
   player: PlayerBalance
   hunger: HungerBalance
@@ -114,6 +141,9 @@ export interface BalanceConfig {
   spawn: SpawnBalance
   spore: SporeBalance
   death: DeathBalance
+  combo: ComboBalance
+  woundDrip: WoundDripBalance
+  twitch: TwitchBalance
 }
 
 export const BALANCE = data as unknown as BalanceConfig

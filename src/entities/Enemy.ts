@@ -79,6 +79,12 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   nestIndex = -1
   /** Уникальный моб (шаг 8): крупнее, живучее, несёт постоянный ген. */
   elite = false
+  /**
+   * Шаг 13 (Dead Cells): убит оверкиллом — убойный урон ≥ gib.overkillShare·maxHp.
+   * Ставит Combat.applyHit прямо перед смертью; сцена вместо туши
+   * разрывает жертву на куски (мясо + съедобные сгустки).
+   */
+  overkilled = false
   private eliteGlow: Phaser.GameObjects.Image | null = null
   /** Шаг 9: сцена регистрирует ауру в Glow-реестре после makeElite. */
   get eliteGlowRef(): Phaser.GameObjects.Image | null {

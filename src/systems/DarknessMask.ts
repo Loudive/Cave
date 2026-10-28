@@ -34,11 +34,20 @@ export interface LightSource {
   breathe?: boolean
   /** Шаг 8: живой множитель радиуса (Ночное зрение / Светожорное ядро). */
   radiusMult?: () => number
+  /** Шаг 13 (Hidden Deep): сид неровного мерцания (грибы-лампы «барунят»). */
+  flicker?: number
+  /** Шаг 13 (Hidden Deep): направление «взгляда» (±1) — свет вытягивается вперёд. */
+  gazeDir?: () => 1 | -1
 }
 
 /** Фрагментный шейдер тьмы: до maxLights источников, форма дыры — как у
  * light-hole.png (плато до 45% радиуса, линейный спад к краю), света
- * перемножаются «прозрачности» — перекрытие светил ярче, как при erase. */
+ * перемножаются «прозрачности» — перекрытие светил ярче, как при erase.
+ * Шаг 13 (Hidden Deep): свет существа (индекс uGazeIdx) вытягивается
+ * ВПЕРЁД по uGazeDir — горизонтальная метрика делится на uGazeStretch,
+ * и только в полупространстве «перед мордой». Свет читается как
+ * направление атаки хищника, оставаясь биологическим (не фонарь —
+ * железное правило проекта). */
 const DARKNESS_FRAG = `
 precision mediump float;
 uniform vec2 resolution;
@@ -46,6 +55,9 @@ uniform vec3 uDarkColor;
 uniform float uDarkAlpha;
 uniform vec3 uLights[MAX_LIGHTS];
 uniform float uLightCount;
+uniform float uGazeIdx;
+uniform float uGazeStretch;
+uniform float uGazeDir;
 
 float holeFalloff (float t)
 {
@@ -62,8 +74,12 @@ void main ()
     {
         if (float(i) >= uLightCount) { break; }
         vec3 L = uLights[i];
-        float d = distance(p, L.xy);
-        float t = d / max(L.z, 1.0);
+        vec2 d = p - L.xy;
+        if (uGazeIdx >= 0.0 && float(i) == uGazeIdx && d.x * uGazeDir > 0.0)
+        {
+            d.x /= uGazeStretch;
+        }
+        float t = distance(vec2(0.0, 0.0), d) / max(L.z, 1.0);
         keep *= (1.0 - holeFalloff(t));
     }
     gl_FragColor = vec4(uDarkColor, uDarkAlpha * keep);
@@ -104,6 +120,9 @@ export class DarknessMask {
         uDarkAlpha: { type: '1f', value: dark.alpha },
         uLights: { type: '3fv', value: this.lightArr },
         uLightCount: { type: '1f', value: 0 },
+        uGazeIdx: { type: '1f', value: -1 },
+        uGazeStretch: { type: '1f', value: LIGHT.gaze.stretch },
+        uGazeDir: { type: '1f', value: 1 },
       })
       this.shader = scene.add.shader(base, 0, 0, width, height)
         .setOrigin(0, 0)
@@ -163,6 +182,18 @@ export class DarknessMask {
     this.heartbeat = Phaser.Math.Clamp(level, 0, 1)
   }
 
+  /**
+   * Шаг 13 (Hidden Deep): неровное мерцание лампы — две несоизмеримые
+   * синусоиды по сиду источника; минимум minShare (глубокий «браун-аут»).
+   * Детерминировано — один и тот же гриб мерцает одинаково каждый визит.
+   */
+  private flickerFactor(now: number, seed: number): number {
+    const f = LIGHT.flicker
+    const wave = Math.sin(now / f.speedMs + seed * 7.13) * 0.62
+      + Math.sin(now / (f.speedMs * 0.373) + seed * 3.7) * 0.38
+    return Math.max(f.minShare, 1 + wave * f.amp)
+  }
+
   update(scene: Phaser.Scene): void {
     const cam = scene.cameras.main
     const t = scene.time.now
@@ -170,16 +201,20 @@ export class DarknessMask {
 
     // Сбор экранных координат источников с отсечением за кадром.
     let count = 0
+    let gazeIdx = -1
     for (const l of this.lights) {
       if (count >= maxLights) break
       let r = l.radius
       if (l.scaleNow) r *= l.scaleNow()
+      if (l.flicker !== undefined) r *= this.flickerFactor(t, l.flicker)
       if (l.breathe) r = this.playerRadius(t)
       // Мировые → экранные (FIT 960×540; краткий зум слоу-мо игнорируем —
       // прежний RT-путь имел то же допущение).
       const sx = l.x() - cam.scrollX
       const sy = l.y() - cam.scrollY
       if (sx < -r || sy < -r || sx > cam.width + r || sy > cam.height + r) continue
+      // Шаг 13: индекс света существа в массиве — для «взгляда хищника».
+      if (l === this.playerLight) gazeIdx = count
       const o = count * 3
       this.lightArr[o] = sx
       this.lightArr[o + 1] = sy
@@ -192,6 +227,11 @@ export class DarknessMask {
       this.shader.setUniform('uLightCount.value', count)
       // Float32Array перезаписан на месте — Phaser зальёт его через uniform3fv.
       this.shader.setUniform('uLights.value', this.lightArr)
+      // Шаг 13: «взгляд хищника» (−1 = свет существа вне кадра — выкл).
+      this.shader.setUniform('uGazeIdx.value', gazeIdx)
+      if (this.playerLight?.gazeDir) {
+        this.shader.setUniform('uGazeDir.value', this.playerLight.gazeDir())
+      }
       return
     }
 

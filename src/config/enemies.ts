@@ -198,6 +198,17 @@ export interface EcoConfig {
 }
 
 export interface EnemiesConfig {
+  /** Шаг 13 (Dead Cells): разрыв тел при оверкилле. */
+  gib: {
+    /** Убойный урон ≥ overkillShare·maxHp — жертву разрывает. */
+    overkillShare: number
+    /** Мясных кусков при разрыве. */
+    chunkCount: number
+    /** Съедобных сгустков (мин, макс). */
+    clotsPerGib: [number, number]
+    /** Масштаб большой декали под жертвой. */
+    decalScale: number
+  }
   spawn: {
     perNest: [number, number]
     biomeFallback: string[]
