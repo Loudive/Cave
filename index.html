@@ -34,7 +34,8 @@
       // Диагностический ватчдог: независимый от Phaser счётчик RAF + ловля ошибок.
       window.__ERRS__ = [];
       window.addEventListener('error', function (e) {
-        window.__ERRS__.push('error: ' + e.message + ' @ ' + (e.filename || '') + ':' + e.lineno);
+        var stack = e.error && e.error.stack ? String(e.error.stack).slice(0, 900) : '(no stack)';
+        window.__ERRS__.push('error: ' + e.message + ' @ ' + (e.filename || '') + ':' + e.lineno + ' | ' + stack);
       });
       window.addEventListener('unhandledrejection', function (e) {
         window.__ERRS__.push('rejection: ' + String(e.reason));

@@ -69,6 +69,8 @@ export class CaveScene extends Phaser.Scene {
   private audio!: AudioSystem
   private hudText!: Phaser.GameObjects.Text
   private lastHudLine = ''
+  /** Шаг 11: счётчик ошибок кадра (страховка цикла — логируем первые 8). */
+  private updateErrorCount = 0
   private hudBars!: Hud
   private cave!: CaveData
   private worldW = 0
@@ -398,153 +400,163 @@ export class CaveScene extends Phaser.Scene {
 
   override update(time: number, delta: number): void {
     // Хитстоп: сначала разморозка, потом гейт геймплея (мир стоит).
+    // Разморозка — ВНЕ страховки: даже после ошибочного кадра мир обязан ожить.
     this.hitStop.update()
-    const frozen = this.hitStop.active
+    try {
+      const frozen = this.hitStop.active
 
-    if (!frozen && !this.dying) {
-      this.creature.update(time, delta)
-      this.combat.update(time)
+      if (!frozen && !this.dying) {
+        this.creature.update(time, delta)
+        this.combat.update(time)
 
-      // Контекст мобов: свет хищника = его зрение (мутации маскируют);
-      // экосистема видит соседей и туши (шаг 7).
-      const lightR = this.mask.playerRadius(time)
-      const ctx: EnemyContext = {
-        playerX: this.creature.x,
-        playerY: this.creature.y,
-        playerLightR: lightR,
-        detectMult: this.sceneMods.detectMult,
-        frozen,
-        playerAlive: this.vitals.alive,
-        playerHpRatio: this.vitals.hpRatio,
-        others: this.enemies,
-        corpses: this.eating.list,
-        eatCorpse: (carcass, portion) => this.eating.mobBite(carcass, portion),
-      }
-      for (const enemy of this.enemies) {
-        enemy.update(time, delta, ctx)
-        enemy.updateSilhouette(this.creature.x, this.creature.y, lightR)
-      }
-      // Выпавшие из мира мобы исчезают тихо, но гнездо их возродит (шаг 7).
-      for (let i = this.enemies.length - 1; i >= 0; i--) {
-        const e = this.enemies[i]
-        if (e.dead && !e.active) this.enemies.splice(i, 1)
-        else if (e.y > this.worldH + 200) {
-          if (e.nestIndex >= 0) this.eco.onMobDeath(e.nestIndex)
-          e.destroy()
-          this.enemies.splice(i, 1)
+        // Контекст мобов: свет хищника = его зрение (мутации маскируют);
+        // экосистема видит соседей и туши (шаг 7).
+        const lightR = this.mask.playerRadius(time)
+        const ctx: EnemyContext = {
+          playerX: this.creature.x,
+          playerY: this.creature.y,
+          playerLightR: lightR,
+          detectMult: this.sceneMods.detectMult,
+          frozen,
+          playerAlive: this.vitals.alive,
+          playerHpRatio: this.vitals.hpRatio,
+          others: this.enemies,
+          corpses: this.eating.list,
+          eatCorpse: (carcass, portion) => this.eating.mobBite(carcass, portion),
         }
-      }
-
-      this.vfx.update()
-      this.spores.update(time, this.creature.x, this.creature.y, this.vitals.alive, this.enemies)
-      this.fire.update(time, this.creature.x, this.creature.y, this.vitals.alive, this.enemies)
-      this.eco.update(time)
-
-      // Шаг 8: «Споровый вдох» — зона Грибных полян.
-      const biomeIdx = biomeIndexAtMeters(this.cave.depthOffsetMeters + this.creature.y * GEN.map.metersPerPixel)
-      this.creature.sporeBreathZone = this.sceneMods.sporeBreath && biomeIdx === 0
-
-      // Шаг 8: «Эхо-камера» — пульс каждые 10с подсвечивает живое сквозь стены.
-      if (this.sceneMods.echo && this.vitals.alive && time >= this.echoNextAt) {
-        this.echoNextAt = time + 10000
-        for (const e of this.enemies) {
-          if (e.dead) continue
-          this.eco.ring(e.x, e.y, '#58e6c8', 0.45)
-          e.updateSilhouette(e.x, e.y, 99999)
+        for (const enemy of this.enemies) {
+          enemy.update(time, delta, ctx)
+          enemy.updateSilhouette(this.creature.x, this.creature.y, lightR)
         }
-      }
+        // Выпавшие из мира мобы исчезают тихо, но гнездо их возродит (шаг 7).
+        for (let i = this.enemies.length - 1; i >= 0; i--) {
+          const e = this.enemies[i]
+          if (e.dead && !e.active) this.enemies.splice(i, 1)
+          else if (e.y > this.worldH + 200) {
+            if (e.nestIndex >= 0) this.eco.onMobDeath(e.nestIndex)
+            e.destroy()
+            this.enemies.splice(i, 1)
+          }
+        }
 
-      // Шаг 8: «Грива шипов» — падение сверху жалит.
-      if (this.sceneMods.spikeMane > 0 && this.vitals.alive) {
-        const pBody = this.creature.body as Phaser.Physics.Arcade.Body
-        if (pBody.blocked.down) this.spikeReady = true
-        if (this.spikeReady && pBody.velocity.y > 160) {
+        this.vfx.update()
+        this.spores.update(time, this.creature.x, this.creature.y, this.vitals.alive, this.enemies)
+        this.fire.update(time, this.creature.x, this.creature.y, this.vitals.alive, this.enemies)
+        this.eco.update(time)
+
+        // Шаг 8: «Споровый вдох» — зона Грибных полян.
+        const biomeIdx = biomeIndexAtMeters(this.cave.depthOffsetMeters + this.creature.y * GEN.map.metersPerPixel)
+        this.creature.sporeBreathZone = this.sceneMods.sporeBreath && biomeIdx === 0
+
+        // Шаг 8: «Эхо-камера» — пульс каждые 10с подсвечивает живое сквозь стены.
+        if (this.sceneMods.echo && this.vitals.alive && time >= this.echoNextAt) {
+          this.echoNextAt = time + 10000
           for (const e of this.enemies) {
             if (e.dead) continue
-            if (Math.abs(e.x - this.creature.x) < 20 && this.creature.y < e.y - 8 && pBody.velocity.y > 0) {
-              this.spikeReady = false
-              const applied = e.takeDamage(Math.round(this.vitals.biteDamage * this.sceneMods.spikeMane), 0, 0, 'physical', 'player')
-              if (applied > 0) this.blood.number(e.x, e.y - 16, `${applied}`, '#E8A34F')
-              pBody.velocity.y = -240
-              this.hitStop.freeze(60)
-              this.blood.burst(e.x, e.y, { count: 10, dirDeg: 90, spreadDeg: 360 })
-              break
+            this.eco.ring(e.x, e.y, '#58e6c8', 0.45)
+            e.updateSilhouette(e.x, e.y, 99999)
+          }
+        }
+
+        // Шаг 8: «Грива шипов» — падение сверху жалит.
+        if (this.sceneMods.spikeMane > 0 && this.vitals.alive) {
+          const pBody = this.creature.body as Phaser.Physics.Arcade.Body
+          if (pBody.blocked.down) this.spikeReady = true
+          if (this.spikeReady && pBody.velocity.y > 160) {
+            for (const e of this.enemies) {
+              if (e.dead) continue
+              if (Math.abs(e.x - this.creature.x) < 20 && this.creature.y < e.y - 8 && pBody.velocity.y > 0) {
+                this.spikeReady = false
+                const applied = e.takeDamage(Math.round(this.vitals.biteDamage * this.sceneMods.spikeMane), 0, 0, 'physical', 'player')
+                if (applied > 0) this.blood.number(e.x, e.y - 16, `${applied}`, '#E8A34F')
+                pBody.velocity.y = -240
+                this.hitStop.freeze(60)
+                this.blood.burst(e.x, e.y, { count: 10, dirDeg: 90, spreadDeg: 360 })
+                break
+              }
             }
           }
         }
+
+        // Шаг 8: цветки, ген-лунки, геном-кристаллы, спутник.
+        this.updateGenomes(time)
+
+        this.eating.update(time, this.creature.x, this.creature.y)
+        this.vitals.update(delta)
+        this.blood.update(this.creature.x, this.creature.y)
+        this.mutations.update(this.creature.x, this.creature.y)
+
+        // Смерть существа: голод/уроны добили — финал забега.
+        if (!this.vitals.alive) this.handleDeath()
       }
 
-      // Шаг 8: цветки, ген-лунки, геном-кристаллы, спутник.
-      this.updateGenomes(time)
+      this.debug.update(this)
+      this.fpsGuard.update()
+      this.creatureGlow.setPosition(this.creature.x, this.creature.y)
+      this.miniMap.update(this.creature.x, this.creature.y, this.cave.tile)
 
-      this.eating.update(time, this.creature.x, this.creature.y)
-      this.vitals.update(delta)
-      this.blood.update(this.creature.x, this.creature.y)
-      this.mutations.update(this.creature.x, this.creature.y)
-
-      // Смерть существа: голод/уроны добили — финал забега.
-      if (!this.vitals.alive) this.handleDeath()
-    }
-
-    this.debug.update(this)
-    this.fpsGuard.update()
-    this.creatureGlow.setPosition(this.creature.x, this.creature.y)
-    this.miniMap.update(this.creature.x, this.creature.y, this.cave.tile)
-
-    const cam = this.cameras.main
-    for (const p of this.parallax) {
-      p.ts.tilePositionX = cam.scrollX * p.factor
-      p.ts.tilePositionY = cam.scrollY * p.factor
-    }
-    this.mask.update(this)
-    this.motes.update(this, this.creature.x, this.creature.y)
-
-    // HUD: глубина + биом + seed (как в шаге 4).
-    const meters = Math.max(0, Math.floor(this.cave.depthOffsetMeters + this.creature.y * GEN.map.metersPerPixel))
-    this.maxMeters = Math.max(this.maxMeters, meters)
-    const band = GEN.biomeBands[biomeIndexAtMeters(this.cave.depthOffsetMeters + this.creature.y * GEN.map.metersPerPixel)]
-    // Шаг 10: setText перерисовывает канву-текстуру — обновляем только сменой строки.
-    const hudLine = `ГЛУБИНА ${meters} м · ${band.name}\nseed ${this.seedBase} · слой ${this.depth}`
-    if (hudLine !== this.lastHudLine) {
-      this.lastHudLine = hudLine
-      this.hudText.setText(hudLine)
-    }
-
-    // Сердцебиение света: низкий голод/HP — свет пульсирует чаще и глубже.
-    const hungerRatio = this.vitals.hungerRatio
-    const warnAt = BALANCE.hunger.warnBelow / 100
-    const heartbeat = Math.max(
-      hungerRatio < warnAt ? 1 - hungerRatio / warnAt : 0,
-      this.vitals.alive && this.vitals.hpRatio < 0.35 ? 0.7 : 0,
-      this.vitals.starving ? 1 : 0,
-    )
-    this.mask.setHeartbeat(heartbeat)
-
-    // Шаг 10: кроссфейд музыки (бой/глубина) + сердцебиение при тревоге.
-    // Угроза = игрок атакует или кто-то целится/преследует/замахивается.
-    let combatActive = this.combat.state !== 'ready'
-    for (const e of this.enemies) {
-      if (e.dead) continue
-      const st = e.aiState
-      if (st === 'pursue' || st === 'windup' || st === 'attack') {
-        combatActive = true
-        break
+      const cam = this.cameras.main
+      for (const p of this.parallax) {
+        p.ts.tilePositionX = cam.scrollX * p.factor
+        p.ts.tilePositionY = cam.scrollY * p.factor
       }
-    }
-    const metersNow = Math.max(0, Math.floor(this.cave.depthOffsetMeters + this.creature.y * GEN.map.metersPerPixel))
-    this.audio.update(time, this.game.loop.delta, combatActive, metersNow, heartbeat)
+      this.mask.update(this)
+      this.motes.update(this, this.creature.x, this.creature.y)
 
-    this.hudBars.update(delta)
+      // HUD: глубина + биом + seed (как в шаге 4).
+      const meters = Math.max(0, Math.floor(this.cave.depthOffsetMeters + this.creature.y * GEN.map.metersPerPixel))
+      this.maxMeters = Math.max(this.maxMeters, meters)
+      const band = GEN.biomeBands[biomeIndexAtMeters(this.cave.depthOffsetMeters + this.creature.y * GEN.map.metersPerPixel)]
+      // Шаг 10: setText перерисовывает канву-текстуру — обновляем только сменой строки.
+      const hudLine = `ГЛУБИНА ${meters} м · ${band.name}\nseed ${this.seedBase} · слой ${this.depth}`
+      if (hudLine !== this.lastHudLine) {
+        this.lastHudLine = hudLine
+        this.hudText.setText(hudLine)
+      }
 
-    // Страховка: ниже мира быть не должно.
-    if (!this.dying && this.creature.y > this.worldH + 300) {
-      this.creature.setPosition(
-        this.cave.entrance.x * this.cave.tile + this.cave.tile / 2,
-        this.cave.entrance.y * this.cave.tile,
+      // Сердцебиение света: низкий голод/HP — свет пульсирует чаще и глубже.
+      const hungerRatio = this.vitals.hungerRatio
+      const warnAt = BALANCE.hunger.warnBelow / 100
+      const heartbeat = Math.max(
+        hungerRatio < warnAt ? 1 - hungerRatio / warnAt : 0,
+        this.vitals.alive && this.vitals.hpRatio < 0.35 ? 0.7 : 0,
+        this.vitals.starving ? 1 : 0,
       )
-      const body = this.creature.body as Phaser.Physics.Arcade.Body
-      body.velocity.set(0)
-      this.cameras.main.flash(300, 88, 230, 200)
+      this.mask.setHeartbeat(heartbeat)
+
+      // Шаг 10: кроссфейд музыки (бой/глубина) + сердцебиение при тревоге.
+      // Угроза = игрок атакует или кто-то целится/преследует/замахивается.
+      let combatActive = this.combat.state !== 'ready'
+      for (const e of this.enemies) {
+        if (e.dead) continue
+        const st = e.aiState
+        if (st === 'pursue' || st === 'windup' || st === 'attack') {
+          combatActive = true
+          break
+        }
+      }
+      const metersNow = Math.max(0, Math.floor(this.cave.depthOffsetMeters + this.creature.y * GEN.map.metersPerPixel))
+      this.audio.update(time, this.game.loop.delta, combatActive, metersNow, heartbeat)
+
+      this.hudBars.update(delta)
+
+      // Страховка: ниже мира быть не должно.
+      if (!this.dying && this.creature.y > this.worldH + 300) {
+        this.creature.setPosition(
+          this.cave.entrance.x * this.cave.tile + this.cave.tile / 2,
+          this.cave.entrance.y * this.cave.tile,
+        )
+        const body = this.creature.body as Phaser.Physics.Arcade.Body
+        body.velocity.set(0)
+        this.cameras.main.flash(300, 88, 230, 200)
+      }
+    } catch (err) {
+      this.updateErrorCount++
+      if (this.updateErrorCount <= 8) {
+        const msg = `CaveScene.update #${this.updateErrorCount}: ${err instanceof Error ? err.message : String(err)}`
+        console.error(msg, err)
+        ;(window as unknown as { __ERRS__?: string[] }).__ERRS__?.push(`game-loop: ${msg}`)
+      }
     }
   }
 
