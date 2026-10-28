@@ -26,6 +26,8 @@ export interface LightConfig {
   mushroomLight: { radius: number }
   gateLight: { radius: number }
   nestLight: { radius: number }
+  /** Шаг 10 (перфоманс): GLSL-маска тьмы — бюджет источников на кадр. */
+  shader: { maxLights: number }
   parallax: ParallaxLayer[]
   motes: {
     count: number

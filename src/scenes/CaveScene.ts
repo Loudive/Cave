@@ -23,6 +23,7 @@ import { Eating } from '../systems/Eating'
 import { Combat } from '../systems/Combat'
 import { Mutations } from '../systems/Mutations'
 import { Hud } from '../systems/Hud'
+import { FpsGuard } from '../systems/FpsGuard'
 import { QUALITY } from '../systems/quality'
 import { buildCaveTilemap } from '../systems/TileBuilder'
 import { generateCave, biomeIndexAtMeters, type CaveData } from '../gen/cave'
@@ -63,7 +64,9 @@ export class CaveScene extends Phaser.Scene {
   private creatureGlow!: Phaser.GameObjects.Image
   private debug!: DebugOverlay
   private miniMap!: MiniMap
+  private fpsGuard!: FpsGuard
   private hudText!: Phaser.GameObjects.Text
+  private lastHudLine = ''
   private hudBars!: Hud
   private cave!: CaveData
   private worldW = 0
@@ -350,6 +353,8 @@ export class CaveScene extends Phaser.Scene {
       .setAlpha(0.8)
 
     this.miniMap = new MiniMap(this, this.cave)
+    // Шаг 10: наблюдатель FPS — на слабых устройствах сам включает «низкое».
+    this.fpsGuard = new FpsGuard(this)
 
     this.debug = new DebugOverlay(this, this.creature, () => [
       `cave:   ${this.cave.cols}×${this.cave.rows}  air=${Math.round(this.cave.stats.reachableRatio * 100)}%`,
@@ -471,6 +476,7 @@ export class CaveScene extends Phaser.Scene {
     }
 
     this.debug.update(this)
+    this.fpsGuard.update()
     this.creatureGlow.setPosition(this.creature.x, this.creature.y)
     this.miniMap.update(this.creature.x, this.creature.y, this.cave.tile)
 
@@ -486,10 +492,12 @@ export class CaveScene extends Phaser.Scene {
     const meters = Math.max(0, Math.floor(this.cave.depthOffsetMeters + this.creature.y * GEN.map.metersPerPixel))
     this.maxMeters = Math.max(this.maxMeters, meters)
     const band = GEN.biomeBands[biomeIndexAtMeters(this.cave.depthOffsetMeters + this.creature.y * GEN.map.metersPerPixel)]
-    this.hudText.setText([
-      `ГЛУБИНА ${meters} м · ${band.name}`,
-      `seed ${this.seedBase} · слой ${this.depth}`,
-    ])
+    // Шаг 10: setText перерисовывает канву-текстуру — обновляем только сменой строки.
+    const hudLine = `ГЛУБИНА ${meters} м · ${band.name}\nseed ${this.seedBase} · слой ${this.depth}`
+    if (hudLine !== this.lastHudLine) {
+      this.lastHudLine = hudLine
+      this.hudText.setText(hudLine)
+    }
 
     // Сердцебиение света: низкий голод/HP — свет пульсирует чаще и глубже.
     const hungerRatio = this.vitals.hungerRatio

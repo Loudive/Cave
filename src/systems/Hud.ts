@@ -10,6 +10,11 @@ import type { Vitals } from './Vitals'
  * янтарь), тонкая полоса роста (споровый фиолет), иконки мутаций,
  * тумблер качества (Q). На тач-устройствах — кнопка укуса.
  * Всё рисуется Graphics'ом за кадр — дешевле пачки спрайтов.
+ *
+ * Шаг 10 (перфоманс): Graphics перерисовывается ТОЛЬКО когда меняется
+ * хоть одно видимое значение (раньше — clear+перерисовка каждый кадр,
+ * даже когда всё стоит). Рамки слотов вынесены в статичный Graphics
+ * (рисуются один раз). levelText кэшируется по строке.
  */
 const DEPTH_HUD = 22
 
@@ -20,11 +25,16 @@ const BAR_H = 10
 
 export class Hud {
   private gfx: Phaser.GameObjects.Graphics
+  private slotsGfx: Phaser.GameObjects.Graphics
   private levelText: Phaser.GameObjects.Text
   private qualityText: Phaser.GameObjects.Text
   private mutationIcons: Phaser.GameObjects.Image[] = []
   private ghostHp = 1
   private hungerPulse = 0
+  /** Снимок последней отрисовки: перерисовка только при изменении. */
+  private drawn = { ghost: -1, hp: -1, hunger: -1, xp: -1, mode: '' }
+  private lastLevelLine = ''
+  private lastOwnedCount = -1
 
   constructor(
     private scene: Phaser.Scene,
@@ -33,6 +43,8 @@ export class Hud {
     private onBiteButton: () => void,
   ) {
     this.gfx = scene.add.graphics().setScrollFactor(0).setDepth(DEPTH_HUD)
+    // Рамки слотов статичны — отдельный Graphics, рисуется один раз.
+    this.slotsGfx = scene.add.graphics().setScrollFactor(0).setDepth(DEPTH_HUD)
     this.levelText = scene.add.text(BAR_X, BAR_Y + BAR_H + 16, '', {
       fontFamily: 'monospace',
       fontSize: '11px',
@@ -93,12 +105,15 @@ export class Hud {
     this.qualityText.setText(`Q — качество: ${q}`)
   }
 
+  /** Квантование доли 0..1 до 1/200 полосы: меньше ложных перерисовок. */
+  private static quant(v: number): number {
+    return Math.round(v * 200)
+  }
+
   /** Вызывать каждый кадр (можно и в заморозке — UI живёт). */
   update(dtMs: number): void {
     const v = this.vitals
     const h = BALANCE.hunger
-    const g = this.gfx
-    g.clear()
 
     // Призрачный след HP: белая полоса «догоняет» красную (juice урона).
     const hpR = v.hpRatio
@@ -114,6 +129,24 @@ export class Hud {
       this.hungerPulse = 0
     }
     const pulse = (lowHunger || starving) ? 0.5 + 0.5 * Math.abs(Math.sin(this.hungerPulse * Math.PI)) : 1
+    const mode = starving ? 'starving' : lowHunger ? 'low' : 'ok'
+
+    // Перерисовка только при изменении (шаг 10): во время простоя — ноль
+    // работы, тесселяция графики не выполняется вовсе.
+    const qGhost = Hud.quant(this.ghostHp)
+    const qHp = Hud.quant(hpR)
+    const qHunger = Hud.quant(hungerR)
+    const qXp = Hud.quant(v.xpRatio)
+    const d = this.drawn
+    // В режиме пульса (low/starving) мигаем каждый кадр — не пропускаем.
+    if (mode === 'ok' && qGhost === d.ghost && qHp === d.hp && qHunger === d.hunger && qXp === d.xp && mode === d.mode) {
+      this.updateIcons()
+      return
+    }
+    d.ghost = qGhost; d.hp = qHp; d.hunger = qHunger; d.xp = qXp; d.mode = mode
+
+    const g = this.gfx
+    g.clear()
 
     // Подложки.
     g.fillStyle(0x0b0b10, 0.72)
@@ -145,22 +178,37 @@ export class Hud {
     g.fillStyle(0xb36bff, 0.9)
     g.fillRect(BAR_X, xpY, BAR_W * v.xpRatio, 2.5)
 
-    this.levelText.setText(`РОСТ ${v.level} · съедено ${v.eatenCount}`)
+    const line = `РОСТ ${v.level} · съедено ${v.eatenCount}`
+    if (line !== this.lastLevelLine) {
+      this.lastLevelLine = line
+      this.levelText.setText(line)
+    }
 
-    // Слоты мутаций (шаг 8): 6 рамок (+гнездо от постоянного гена).
-    // Занятые — кристалл в цвет редкости (проклятия — багровая рамка),
-    // пустые — тусклый контур: видно, сколько места осталось.
+    this.updateIcons()
+  }
+
+  /** Слоты мутаций: рамки — статичные, кристаллы — по изменениям. */
+  private updateIcons(): void {
     const owned = this.mutations.ownedList
+    if (owned.length === this.lastOwnedCount) return
+    this.lastOwnedCount = owned.length
     const slots = this.mutations.slots
+    const hungerY = BAR_Y + BAR_H + 5
+    const xpY = hungerY + BAR_H
     const slotY = xpY + 14
-    g.lineStyle(1, 0x2a2a3a, 1)
+
+    // Рамки рисуются один раз в отдельный Graphics (шаг 10).
+    const s = this.slotsGfx
+    s.clear()
+    s.lineStyle(1, 0x2a2a3a, 1)
     for (let i = 0; i < slots; i++) {
       const x = BAR_X + 6 + i * 18
-      g.fillStyle(0x0b0b10, 0.6)
-      g.fillRect(x - 7, slotY - 9, 14, 18)
-      g.strokeRect(x - 7.5, slotY - 9.5, 15, 19)
+      s.fillStyle(0x0b0b10, 0.6)
+      s.fillRect(x - 7, slotY - 9, 14, 18)
+      s.strokeRect(x - 7.5, slotY - 9.5, 15, 19)
     }
-    // Кристаллы поверх рамок.
+
+    // Кристаллы поверх рамок (пул изображений растёт по необходимости).
     while (this.mutationIcons.length < owned.length) {
       const icon = this.scene.add.image(0, 0, 'mutation-gem')
         .setScrollFactor(0)

@@ -3,6 +3,7 @@ import { QUALITY } from './quality'
 import { ChromaticPipeline } from './ChromaticPipeline'
 import type { BloodFx } from './BloodFx'
 import type { HitStop } from './HitStop'
+import { VFX } from '../config/vfx'
 
 /**
  * Vfx — шаг 9: juice-слой поверх геймплея (гайд: «Juice it or lose it»).
@@ -14,20 +15,20 @@ import type { HitStop } from './HitStop'
  *    уроне и смерти уникального моба (только WebGL + высокое качество).
  * 3. Slow-mo 0.3 c на убийстве уникального монстра (делегирует HitStop:
  *    мир замедляется в 4 раза, камера чуть наезжает).
- * 4. Glow-фильтр на источниках света (грибы, врата, лужи огня, аура
- *    уникальных): реестр целей, включается на высоком качестве в WebGL,
- *    тумблер Q переключает на лету.
+ * 4. Glow-ореолы источников света (грибы, врата, аура уникальных).
+ *    Шаг 10 (перфоманс): вместо postFX.addGlow (каждый объект с postFX
+ *    в Phaser 3.60+ рендерится в ОТДЕЛЬНЫЙ фреймбуфер — 17+ объектов
+ *    убивали FPS) — синхронный bloom-спрайт: копия ореола чуть крупнее
+ *    и тусклее, следует за целью каждый кадр, ноль доп. пассов.
  * 5. Spark-бёрсты: искры по событиям (панцирь «кланк», уникальные,
  *    «Грива шипов») — через общий пул BloodFx.
  */
 
 interface GlowEntry {
   target: Phaser.GameObjects.Image
-  fx: Phaser.FX.Glow | null
+  bloom: Phaser.GameObjects.Image | null
 }
 
-const CHROMA_MAX = 0.006
-const CHROMA_FADE_MS = 420
 const PIPELINE_KEY = 'ChromaticAB'
 
 export class Vfx {
@@ -54,7 +55,7 @@ export class Vfx {
   eatFlash(x: number, y: number, scale = 0.55): void {
     let img = this.flashPool.find((f) => !f.visible)
     if (!img) {
-      if (this.flashPool.length < 6) {
+      if (this.flashPool.length < VFX.flashPoolSize) {
         img = this.scene.add.image(x, y, 'glow-red')
           .setDepth(17)
           .setBlendMode(Phaser.BlendModes.ADD)
@@ -69,8 +70,8 @@ export class Vfx {
     this.scene.tweens.add({
       targets: img,
       alpha: 0,
-      scale: scale * 2.1,
-      duration: 260,
+      scale: scale * VFX.flashScaleGain,
+      duration: VFX.flashMs,
       ease: 'Quad.Out',
       onComplete: () => img!.setVisible(false),
     })
@@ -90,8 +91,8 @@ export class Vfx {
       cam.setPostPipeline(PIPELINE_KEY)
       this.chromaOn = true
     }
-    this.chromaStrength = CHROMA_MAX * strength
-    this.chromaUntil = this.scene.time.now + CHROMA_FADE_MS
+    this.chromaStrength = VFX.chromaMax * strength
+    this.chromaUntil = this.scene.time.now + VFX.chromaFadeMs
   }
 
   private chromaOff(): void {
@@ -111,10 +112,10 @@ export class Vfx {
 
   /** «Мир замирает на мгновение величия»: 0.3 c замедления + наезд камеры. */
   uniqueKillSlowMo(): void {
-    this.hitStop.slowMo(300)
+    this.hitStop.slowMo(VFX.slowMoMs)
     const cam = this.scene.cameras.main
-    cam.zoomTo(1.035, 140, 'Sine.Out')
-    this.scene.time.delayedCall(320, () => cam.zoomTo(1, 220, 'Sine.In'))
+    cam.zoomTo(VFX.slowMoZoom, VFX.slowMoZoomInMs, 'Sine.Out')
+    this.scene.time.delayedCall(VFX.slowMoMs + 20, () => cam.zoomTo(1, VFX.slowMoZoomOutMs, 'Sine.In'))
     this.chromaticHit(1.4)
   }
 
@@ -130,33 +131,48 @@ export class Vfx {
     if (golden) this.eatFlash(x, y, 0.8)
   }
 
-  // ── Glow-реестр ─────────────────────────────────────────────────────────────
+  // ── Glow-ореолы (шаг 10: bloom-спрайты вместо postFX) ──────────────────────
 
-  /** Зарегистрировать источник света для Glow-фильтра (Q переключает). */
+  /**
+   * Зарегистрировать ореол для мягкого свечения. Раньше вешал
+   * postFX.addGlow — отдельный фреймбуфер-пасс на объект, из-за чего
+   * полсотни пассов за кадр роняли FPS. Теперь bloom — копия текстуры
+   * чуть крупнее и тусклее, синхронизируется с целью каждый кадр.
+   */
   registerGlow(target: Phaser.GameObjects.Image): void {
-    const entry: GlowEntry = { target, fx: null }
+    const bloom = this.scene.add.image(target.x, target.y, target.texture.key)
+      .setDepth(target.depth - 1)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setScale(target.scaleX * VFX.bloomScale)
+      .setAlpha(0)
+      .setVisible(false)
+    const entry: GlowEntry = { target, bloom }
     this.glows.add(entry)
-    this.applyGlow(entry)
     target.once(Phaser.GameObjects.Events.DESTROY, () => {
+      entry.bloom?.destroy()
       this.glows.delete(entry)
     })
   }
 
-  private applyGlow(entry: GlowEntry): void {
-    if (this.fxAllowed && !entry.fx) {
-      const post = entry.target.postFX
-      if (post) entry.fx = post.addGlow(0xffffff, 0.6, 0.8)
-    } else if (!this.fxAllowed && entry.fx) {
-      entry.target.postFX?.remove(entry.fx)
-      entry.fx = null
+  private syncGlow(entry: GlowEntry): void {
+    const { target, bloom } = entry
+    if (!bloom) return
+    // На низком качестве ореолы-блум гаснут первыми (гайд: эффекты режутся).
+    const on = this.fxAllowed && target.visible && target.alpha > 0.01
+    if (!on) {
+      if (bloom.visible) bloom.setVisible(false)
+      return
     }
+    if (!bloom.visible) bloom.setVisible(true)
+    bloom.setPosition(target.x, target.y)
+      .setScale(target.scaleX * VFX.bloomScale, target.scaleY * VFX.bloomScale)
+      .setAlpha(target.alpha * VFX.bloomAlpha)
+      .setAngle(target.angle)
   }
 
-  /** Переключение качества (Q): пересобрать все пост-эффекты. */
+  /** Переключение качества (Q): хроматика на низком не нужна вовсе. */
   refreshForQuality(): void {
-    // Хроматика на низком качестве не нужна вовсе.
     if (!this.fxAllowed) this.chromaOff()
-    for (const entry of this.glows) this.applyGlow(entry)
   }
 
   /** Вызывать из scene.update каждый кадр. */
@@ -167,9 +183,11 @@ export class Vfx {
       if (left <= 0) {
         this.chromaOff()
       } else {
-        this.chromaStrength = CHROMA_MAX * (left / CHROMA_FADE_MS)
+        this.chromaStrength = VFX.chromaMax * (left / VFX.chromaFadeMs)
         this.chromaApply()
       }
     }
+    // Bloom-ореолы: 15-20 целей — три десятка присваиваний, дешевле пасса.
+    for (const entry of this.glows) this.syncGlow(entry)
   }
 }

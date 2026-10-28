@@ -15,6 +15,10 @@ const config: Phaser.Types.Core.GameConfig = {
   width: 960,
   height: 540,
   backgroundColor: '#0B0B10',
+  // Шаг 10 (перфоманс): просим дискретный GPU, где он есть; пиксельные
+  // координаты без сглаживания субпикселей (арт — пиксельный, 16px тайлы).
+  powerPreference: 'high-performance',
+  roundPixels: true,
   physics: {
     default: 'arcade',
     arcade: {

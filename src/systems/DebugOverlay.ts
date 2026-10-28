@@ -6,10 +6,13 @@ import { Creature } from '../entities/Creature'
  * Показывает состояние, скорости, coyote/buffer таймеры и FPS.
  * Переключение — F3. Помогает «чувствовать» параметры movement.json.
  * С шага 4 — принимает опциональные строки о пещере (seed, связность…).
+ * Шаг 10 (перфоманс): по умолчанию ВЫКЛЮЧЕН — setText перерисовывает
+ * канву-текстуру каждый кадр (мс CPU), в релизе игрокам это не нужно.
+ * Выбор сохраняется в localStorage ('cave-debug').
  */
 export class DebugOverlay {
   private readonly text: Phaser.GameObjects.Text
-  private visible = true
+  private visible: boolean
 
   constructor(
     scene: Phaser.Scene,
@@ -27,9 +30,21 @@ export class DebugOverlay {
       .setScrollFactor(0)
       .setDepth(20)
 
+    try {
+      this.visible = localStorage.getItem('cave-debug') === '1'
+    } catch {
+      this.visible = false
+    }
+    this.text.setVisible(this.visible)
+
     scene.input.keyboard?.on('keydown-F3', () => {
       this.visible = !this.visible
       this.text.setVisible(this.visible)
+      try {
+        localStorage.setItem('cave-debug', this.visible ? '1' : '0')
+      } catch {
+        /* приватный режим */
+      }
     })
   }
 

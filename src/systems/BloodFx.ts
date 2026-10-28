@@ -60,7 +60,13 @@ export class BloodFx {
   private readonly decals: DecalSlot[] = []
   private readonly clots: ClotSlot[] = []
   private readonly numbers: NumberSlot[] = []
-  private liveEmitters = new Set<Phaser.GameObjects.Particles.ParticleEmitter>()
+  /** Шаг 10 (перфоманс): ПУЛ эмиттеров по ключу «текстура:липкость».
+   *  Раньше каждый бёрст создавал новый ParticleEmitter и отложенно
+   *  уничтожал его — аллокации и GC-паузы прямо в бою. Теперь эмиттеры
+   *  живут вечно, на бёрст меняется только конфиг (setConfig) и
+   *  emitParticleAt. Липкость — отдельный эмиттер, чтобы декали
+   *  штамповались только у «кровяных» частиц. */
+  private readonly emitters = new Map<string, Phaser.GameObjects.Particles.ParticleEmitter>()
 
   constructor(
     private scene: Phaser.Scene,
@@ -93,6 +99,27 @@ export class BloodFx {
 
   // ── Слой 1+2: брызги и липкие декали ─────────────────────────────────────
 
+  /** Эмиттер из пула: создаётся один раз на «текстура+липкость», живёт вечно. */
+  private pooledEmitter(texture: string, sticky: boolean): Phaser.GameObjects.Particles.ParticleEmitter {
+    const key = `${texture}:${sticky ? 1 : 0}`
+    let emitter = this.emitters.get(key)
+    if (!emitter) {
+      emitter = this.scene.add.particles(0, 0, texture, { emitting: false })
+      emitter.setDepth(DEPTH_PARTICLES)
+      this.hitStop.track(emitter)
+      if (sticky) {
+        // Липкость: погибшая частица оставляет декаль (стена/пол).
+        emitter.onParticleDeath((p: Phaser.GameObjects.Particles.Particle) => {
+          if (Math.random() < BALANCE.blood.stickyChance) {
+            this.stampSticky(p.x, p.y)
+          }
+        })
+      }
+      this.emitters.set(key, emitter)
+    }
+    return emitter
+  }
+
   /** Выброс крови. dirDeg: 0 = вправо, 90 = вниз; spreadDeg — сектор. */
   burst(x: number, y: number, opts: BurstOptions): void {
     const b = BALANCE.blood
@@ -103,8 +130,10 @@ export class BloodFx {
     const spread = opts.spreadDeg ?? 360
     const half = spread / 2
     const dir = opts.dirDeg ?? 90
+    const sticky = opts.sticky ?? true
 
-    const emitter = this.scene.add.particles(0, 0, opts.texture ?? 'blood-drop', {
+    const emitter = this.pooledEmitter(opts.texture ?? 'blood-drop', sticky)
+    emitter.setConfig({
       speed: { min: b.speedMin * (opts.speedMult ?? 1), max: b.speedMax * (opts.speedMult ?? 1) },
       angle: { min: dir - half, max: dir + half },
       gravityY: b.gravity,
@@ -114,26 +143,7 @@ export class BloodFx {
       rotate: { min: -90, max: 90 },
       emitting: false,
     })
-    emitter.setDepth(DEPTH_PARTICLES)
-    this.hitStop.track(emitter)
-    this.liveEmitters.add(emitter)
-
-    // Липкость: погибшая частица оставляет декаль (стена/пол).
-    const sticky = opts.sticky ?? true
-    emitter.onParticleDeath((p: Phaser.GameObjects.Particles.Particle) => {
-      if (sticky && Math.random() < BALANCE.blood.stickyChance) {
-        this.stampSticky(p.x, p.y)
-      }
-    })
-
     emitter.emitParticleAt(x, y, count)
-
-    // Эмиттер одноразовый: сам удаляется, когда частицы отжили.
-    this.scene.time.delayedCall(b.lifespanMax + 250, () => {
-      this.hitStop.untrack(emitter)
-      this.liveEmitters.delete(emitter)
-      emitter.destroy()
-    })
   }
 
   /** Взрыв крови (убийство): во все стороны, вокруг головы жертвы. */

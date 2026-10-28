@@ -2,19 +2,23 @@ import Phaser from 'phaser'
 import { LIGHT, hexInt } from '../config/light'
 
 /**
- * DarknessMask — шаг 5: световая маска тьмы.
- * Гайд предлагает Light2D или «более дешёвый вариант — световые маски:
- * чёрный слой с «дырками»-градиентами вокруг источников». Берём маску:
- * RenderTexture на весь кадр заливается тьмой, источники вырезают в ней
- * мягкие дыры радиальной light-hole текстурой (blend ERASE).
- * Дешевле Light2D (нет нормалмап и пайплайна), работает на Canvas-fallback,
- * радиусы читаются из light.json.
+ * DarknessMask — шаг 5: световая маска тьмы. Шаг 10 (перфоманс): один
+ * GLSL-проход вместо RenderTexture с fill+erase на каждый источник.
+ *
+ * Было: каждый кадр rt.fill() (полный экран) + rt.erase(hole) на КАЖДЫЙ
+ * источник света (полный экран на дыру) — 20+ полноэкранных операций
+ * композитинга за кадр. Стало (WebGL): один fullscreen-квад с фрагментным
+ * шейдером, который сам считает тьму по массиву источников (uniform 3fv,
+ * до maxLights) — ровно ОДИН проход на кадр независимо от числа света.
+ *
+ * Canvas-fallback (без WebGL): прежний путь RenderTexture, но дыры
+ * батчатся через beginDraw/batchDraw/endDraw — одна отсылка вместо N.
  *
  * Порядок слоёв сцены: мир (тайлы/сущности, depth 0..3) → маска (14) →
  * силуэтная мошь (16) → вигнетка (18) → HUD (22+) → debug (24) → мини-карта (30).
  */
 
-/** Глубина RenderTexture тьмы (см. слои выше). */
+/** Глубина маски тьмы (см. слои выше). */
 const DEPTH_MASK = 14
 
 export interface LightSource {
@@ -32,10 +36,50 @@ export interface LightSource {
   radiusMult?: () => number
 }
 
+/** Фрагментный шейдер тьмы: до maxLights источников, форма дыры — как у
+ * light-hole.png (плато до 45% радиуса, линейный спад к краю), света
+ * перемножаются «прозрачности» — перекрытие светил ярче, как при erase. */
+const DARKNESS_FRAG = `
+precision mediump float;
+uniform vec2 resolution;
+uniform vec3 uDarkColor;
+uniform float uDarkAlpha;
+uniform vec3 uLights[MAX_LIGHTS];
+uniform float uLightCount;
+
+float holeFalloff (float t)
+{
+    if (t >= 1.0) { return 0.0; }
+    if (t < 0.45) { return 1.0 - 0.18 * (t / 0.45); }
+    return 0.82 * (1.0 - (t - 0.45) / 0.55);
+}
+
+void main ()
+{
+    vec2 p = vec2(gl_FragCoord.x, resolution.y - gl_FragCoord.y);
+    float keep = 1.0;
+    for (int i = 0; i < MAX_LIGHTS; i++)
+    {
+        if (float(i) >= uLightCount) { break; }
+        vec3 L = uLights[i];
+        float d = distance(p, L.xy);
+        float t = d / max(L.z, 1.0);
+        keep *= (1.0 - holeFalloff(t));
+    }
+    gl_FragColor = vec4(uDarkColor, uDarkAlpha * keep);
+}
+`.replace(/MAX_LIGHTS/g, String(LIGHT.shader.maxLights))
+
 export class DarknessMask {
-  private readonly rt: Phaser.GameObjects.RenderTexture
-  private readonly hole: Phaser.GameObjects.Image
+  /** WebGL: fullscreen-шейдер. Canvas: RenderTexture + дыры (батч). */
+  private readonly shader: Phaser.GameObjects.Shader | null
+  private readonly rt: Phaser.GameObjects.RenderTexture | null
+  private readonly hole: Phaser.GameObjects.Image | null
   private readonly colorInt: number
+  private readonly darkR: number
+  private readonly darkG: number
+  private readonly darkB: number
+  private readonly lightArr: Float32Array
   private readonly lights: LightSource[] = []
   private playerLight: LightSource | null = null
   /** Сердцебиение: 0..1 — усиливает дыхание света (низкий HP/голод, шаг 6). */
@@ -45,14 +89,40 @@ export class DarknessMask {
 
   constructor(scene: Phaser.Scene) {
     const { width, height } = scene.scale
-    this.rt = scene.add.renderTexture(0, 0, width, height)
-      .setOrigin(0, 0)
-      .setScrollFactor(0)
-      .setDepth(DEPTH_MASK)
-    this.hole = scene.make.image({ key: LIGHT.darkness.holeTexture, add: false })
-    this.colorInt = hexInt(LIGHT.darkness.color)
+    const dark = LIGHT.darkness
+    this.colorInt = hexInt(dark.color)
+    this.darkR = ((this.colorInt >> 16) & 0xff) / 255
+    this.darkG = ((this.colorInt >> 8) & 0xff) / 255
+    this.darkB = (this.colorInt & 0xff) / 255
+    this.lightArr = new Float32Array(LIGHT.shader.maxLights * 3)
+
+    const isWebGL = scene.game.renderer.type === Phaser.WEBGL
+
+    if (isWebGL) {
+      const base = new Phaser.Display.BaseShader('darkness-mask', DARKNESS_FRAG, undefined, {
+        uDarkColor: { type: '3f', value: { x: this.darkR, y: this.darkG, z: this.darkB } },
+        uDarkAlpha: { type: '1f', value: dark.alpha },
+        uLights: { type: '3fv', value: this.lightArr },
+        uLightCount: { type: '1f', value: 0 },
+      })
+      this.shader = scene.add.shader(base, 0, 0, width, height)
+        .setOrigin(0, 0)
+        .setScrollFactor(0)
+        .setDepth(DEPTH_MASK)
+      this.rt = null
+      this.hole = null
+    } else {
+      this.shader = null
+      this.rt = scene.add.renderTexture(0, 0, width, height)
+        .setOrigin(0, 0)
+        .setScrollFactor(0)
+        .setDepth(DEPTH_MASK)
+      this.hole = scene.make.image({ key: dark.holeTexture, add: false })
+      this.hole.setBlendMode(Phaser.BlendModes.ERASE)
+    }
+
     scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      this.hole.destroy()
+      this.hole?.destroy()
     })
   }
 
@@ -96,24 +166,51 @@ export class DarknessMask {
   update(scene: Phaser.Scene): void {
     const cam = scene.cameras.main
     const t = scene.time.now
-    this.rt.clear()
-    this.rt.fill(this.colorInt, LIGHT.darkness.alpha)
+    const maxLights = LIGHT.shader.maxLights
 
-    let holes = 0
+    // Сбор экранных координат источников с отсечением за кадром.
+    let count = 0
     for (const l of this.lights) {
+      if (count >= maxLights) break
       let r = l.radius
       if (l.scaleNow) r *= l.scaleNow()
       if (l.breathe) r = this.playerRadius(t)
-      // Мировые → экранные (zoom = 1, FIT 960×540, канвас не ресайзится).
+      // Мировые → экранные (FIT 960×540; краткий зум слоу-мо игнорируем —
+      // прежний RT-путь имел то же допущение).
       const sx = l.x() - cam.scrollX
       const sy = l.y() - cam.scrollY
       if (sx < -r || sy < -r || sx > cam.width + r || sy > cam.height + r) continue
-      this.hole.setPosition(sx, sy)
+      const o = count * 3
+      this.lightArr[o] = sx
+      this.lightArr[o + 1] = sy
+      this.lightArr[o + 2] = r
+      count++
+    }
+    this.lastHoles = count
+
+    if (this.shader) {
+      this.shader.setUniform('uLightCount.value', count)
+      // Float32Array перезаписан на месте — Phaser зальёт его через uniform3fv.
+      this.shader.setUniform('uLights.value', this.lightArr)
+      return
+    }
+
+    // ── Canvas-фолбэк: RT, дыры одним батчем ────────────────────────────────
+    const rt = this.rt!
+    const hole = this.hole!
+    rt.clear()
+    rt.fill(this.colorInt, LIGHT.darkness.alpha)
+    if (count === 0) return
+    rt.beginDraw()
+    for (let i = 0; i < count; i++) {
+      const sx = this.lightArr[i * 3]
+      const sy = this.lightArr[i * 3 + 1]
+      const r = this.lightArr[i * 3 + 2]
+      hole.setPosition(sx, sy)
         .setDisplaySize(r * 2, r * 2)
         .setAlpha(1)
-      this.rt.erase(this.hole)
-      holes++
+      rt.batchDraw(hole)
     }
-    this.lastHoles = holes
+    rt.endDraw()
   }
 }
