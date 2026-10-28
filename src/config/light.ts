@@ -10,6 +10,8 @@ export interface ParallaxLayer {
   depth: number
   factor: number
   alpha: number
+  /** Шаг 12: доля цвета биома в тонировке слоя (0 — нет, 1 — целиком). */
+  tintStrength: number
 }
 
 export interface LightConfig {

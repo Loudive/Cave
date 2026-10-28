@@ -44,7 +44,7 @@ export class Mutations {
   eliteGuarantee = false
 
   /** Сцена применяет хуки эффекта (grip/doubleJump/thorns/...). */
-  onApply: ((def: MutationDef) => void) | null = null
+  onApply: ((def: MutationDef, silent?: boolean) => void) | null = null
   onPickedUp: (() => void) | null = null
 
   constructor(private scene: Phaser.Scene, private vitals: Vitals) {}
@@ -61,7 +61,21 @@ export class Mutations {
   slots = BALANCE.mutations.maxOwned
 
   /**
-   * Бросок на выпадение из туши. Шанс 25% (+бонус Гнезда); если повезло —
+   * Шаг 12: перенос мутаций между слоями пещеры — переиграть эффекты
+   * тихо (без баннеров/вспышек/звука). Вызывается из CaveScene.restoreRun
+   * ПОСЛЕ генов и перков, чтобы SET-модификаторы легли поверх.
+   */
+  restore(ids: string[]): void {
+    for (const id of ids) {
+      const def = MUTATIONS.pool.find((m) => m.id === id)
+      if (!def || this.owned.some((o) => o.id === id)) continue
+      this.owned.push(def)
+      this.applyEffect(def)
+      this.onApply?.(def, true)
+    }
+  }
+
+  /** Бросок на выпадение из туши. Шанс 25% (+бонус Гнезда); если повезло —
    * кристалл вырастает из туши (пул без повторов; пусто — кристалл не вырастет).
    * opts.guaranteed — «Мутационный шторм»: элита роняет всегда.
    */

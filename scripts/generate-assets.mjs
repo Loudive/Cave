@@ -398,17 +398,50 @@ function makeSilhouette(name, seed, opts) {
       if (s.kind === 'pillar') {
         c.roundRect(x - s.w / 2, s.cy - s.len / 2, x + s.w / 2, s.cy + s.len / 2,
           Math.floor(s.w / 3), opts.ink, opts.inkA)
+        // Шаг 12: бугристый край столба — пещера органичная, не машинная.
+        for (let b = 0; b < 6; b++) {
+          const by = s.cy - s.len / 2 + Math.floor(rnd() * s.len)
+          const bw = 3 + Math.floor(rnd() * (s.w / 3))
+          c.roundRect(x - s.w / 2 - bw, by, x - s.w / 2, by + 4 + Math.floor(rnd() * 6), 2, opts.ink, opts.inkA)
+          c.roundRect(x + s.w / 2, by + 3, x + s.w / 2 + bw, by + 8 + Math.floor(rnd() * 6), 2, opts.ink, opts.inkA)
+        }
       } else if (s.kind === 'stalactite') {
         for (let y = 0; y <= s.len; y++) {
           const t = y / s.len
-          const half = Math.max(1, Math.round((s.w / 2) * (1 - t * t)))
+          let half = Math.max(1, Math.round((s.w / 2) * (1 - t * t)))
+          // Шаг 12: зубчатый край — сталактит «рваный», не идеальный конус.
+          if (y % 6 < 2 && y > 4) half = Math.max(1, half - 1 - Math.floor(rnd() * 2))
           c.rect(x - half, y, x + half, y, opts.ink, opts.inkA)
         }
       } else {
         for (let y = 0; y <= s.len; y++) {
           const t = y / s.len
-          const half = Math.max(1, Math.round((s.w / 2) * (1 - (1 - t) * (1 - t))))
+          let half = Math.max(1, Math.round((s.w / 2) * (1 - (1 - t) * (1 - t))))
+          if (y % 7 < 2 && y < s.len - 4) half = Math.max(1, half - 1 - Math.floor(rnd() * 2))
           c.rect(x - half, H - 1 - y, x + half, H - 1 - y, opts.ink, opts.inkA)
+        }
+        // Шаг 12: rim-light — верхняя кромка сталагмита ловит свет сверху
+        // (приём из референсов: светлая кромка отделяет камень от бездны).
+        if (opts.rim) {
+          const rw = Math.max(2, Math.floor(s.w / 2) - 2)
+          const topY = H - 1 - s.len
+          c.rect(x - rw, topY, x + rw, topY + 1, opts.rim, opts.rimA)
+        }
+      }
+    }
+  }
+  // Шаг 12: свисающие корни-нити — жизнь прорастает даже в камень.
+  if (opts.roots) {
+    for (let i = 0; i < opts.roots; i++) {
+      const x0 = Math.floor(rnd() * W)
+      const len = 30 + Math.floor(rnd() * 110)
+      for (const dx of [-W, 0, W]) {
+        let x = x0
+        for (let y = 0; y < len; y++) {
+          if (y % 9 === 0) x += rnd() > 0.5 ? 1 : -1
+          const a = Math.round(opts.inkA * (0.55 + 0.45 * (1 - y / len)))
+          c.rect(x + dx, y, x + dx, y, opts.ink, a)
+          if (rnd() > 0.86) c.rect(x + dx + 1, y, x + dx + 1, y, opts.ink, Math.round(a * 0.6))
         }
       }
     }
@@ -419,13 +452,295 @@ function makeSilhouette(name, seed, opts) {
 /** Дальний слой: чуть светлее полотна, мелкий и частый — «стена пещеры в дымке». */
 makeSilhouette('silhouette-far.png', 51, {
   bg: [0x0a, 0x0a, 0x11], ink: [0x08, 0x08, 0x0d], inkA: 255,
-  stalactites: 10, stalagmites: 8, pillars: 7, minW: 36, maxW: 120, maxLen: 0.34,
+  stalactites: 14, stalagmites: 10, pillars: 9, minW: 36, maxW: 120, maxLen: 0.34,
+  roots: 16,
 })
 /** Ближний слой: прозрачный фон, крупные тёмные формы поверх дальнего. */
 makeSilhouette('silhouette-near.png', 52, {
   bg: null, ink: [0x06, 0x06, 0x09], inkA: 235,
-  stalactites: 6, stalagmites: 5, pillars: 4, minW: 60, maxW: 190, maxLen: 0.42,
+  stalactites: 8, stalagmites: 6, pillars: 5, minW: 60, maxW: 190, maxLen: 0.42,
+  roots: 9, rim: [0x1c, 0x22, 0x2c], rimA: 140,
 })
+
+// ── Шаг 12: лучший визуал пещеры ───────────────────────────────────────
+// Приёмы из анализа бесплатных пиксельных референсов (itch.io):
+// страта-полосы фара, дизеринг на границах, rim-light верхних кромок,
+// AO (затемнение) в нижних углах, «бугристые» органичные контуры,
+// висящие корни. Всё — в палитре контракта (design/DECISIONS.md).
+
+/** Страта-задник 768×1280: дальняя стена пещеры за силуэтами — слоистые
+ *  напластования породы с дизерингом, трещинами и карманами свечения.
+ *  Горизонтально бесшовный (дублирование фигур на ±W). */
+{
+  const W = 768
+  const H = 1280
+  const c = new Canvas(W, H)
+  c.fill([0x0c, 0x0c, 0x13])
+  const rnd = mulberry32(71)
+  // Напластования: 8 полос — каждая чуть другого оттенка тёмного,
+  // граница — дизеринг (шум перекрытия), не прямая линия.
+  const strataColors = [
+    [0x13, 0x13, 0x20], [0x10, 0x11, 0x1c], [0x15, 0x14, 0x22],
+    [0x11, 0x10, 0x1a], [0x17, 0x15, 0x24], [0x10, 0x12, 0x1d],
+    [0x14, 0x13, 0x1e], [0x11, 0x13, 0x20],
+  ]
+  let y = 0
+  for (let b = 0; b < strataColors.length; b++) {
+    const bandH = Math.floor(H / strataColors.length * (0.7 + rnd() * 0.7))
+    const col = strataColors[b]
+    for (let yy = y; yy < Math.min(H, y + bandH); yy++) {
+      for (let x = 0; x < W; x++) {
+        // Дизеринг на границе полосы — «рваный» геологический срез.
+        const edge = Math.min(yy - y, y + bandH - yy)
+        if (edge < 6 && rnd() > 0.45) continue
+        c.px(x, yy, col, 255)
+      }
+    }
+    y += bandH
+  }
+  // Вертикальные трещины — тонкие тёмные зигзаги сверху донизу.
+  for (let i = 0; i < 22; i++) {
+    let x = Math.floor(rnd() * W)
+    for (let yy = 0; yy < H; yy++) {
+      if (yy % 11 === 0) x += rnd() > 0.5 ? 1 : -1
+      c.px(x, yy, [0x07, 0x07, 0x0d], 200)
+      if (rnd() > 0.7) c.px(x + 1, yy, [0x07, 0x07, 0x0d], 120)
+    }
+  }
+  // Крошечные кристаллы в глубине породы — тусклые искры (биолюм-пыль).
+  for (let i = 0; i < 130; i++) {
+    const x = Math.floor(rnd() * W)
+    const yy = Math.floor(rnd() * H)
+    const col = rnd() > 0.5 ? PAL.cyan : PAL.spore
+    c.px(x, yy, col, Math.round(18 + rnd() * 38))
+    if (rnd() > 0.6) c.px(x + 1, yy + 1, col, Math.round(10 + rnd() * 18))
+  }
+  // Карманы дальнего свечения — очень тусклые радиальные пятна
+  // (грибные поляны где-то там, в глубине).
+  for (let i = 0; i < 9; i++) {
+    const gx = Math.floor(rnd() * W)
+    const gy = Math.floor(rnd() * H)
+    const col = rnd() > 0.5 ? PAL.cyan : PAL.blood
+    c.radial(gx, gy, 60 + rnd() * 90, col, [[0, 0.08], [0.5, 0.03], [1, 0]])
+  }
+  c.save('bg-strata.png')
+}
+
+/** Пять видов скал (шаг 12 — «сами скалы разных видов»):
+ *  a — округлый валун с rim-light сверху и AO снизу;
+ *  b — угловатая глыба со сколотым краем;
+ *  c — россыпь мелких камней;
+ *  d — высокий сталагмит-шпиль;
+ *  e — треснувшая плита со светящейся жилой (редкая, ставит свечение). */
+function rockBase(c, seed, opts) {
+  const rnd = mulberry32(seed)
+  // Rim-light: верхняя кромка ловит свет (2px полоса по верхнему краю).
+  c.rect(opts.x0 + 2, opts.y0, opts.x1 - 2, opts.y0 + 1, [0x4a, 0x4a, 0x62], 190)
+  // AO: нижние углы темнее — камень «сидит» в тени.
+  c.rect(opts.x0, opts.y1 - 3, opts.x1, opts.y1, PAL.ink, 120)
+  // Слоистое зерно.
+  for (let i = 0; i < opts.grain; i++) {
+    const x = opts.x0 + 2 + Math.floor(rnd() * (opts.x1 - opts.x0 - 4))
+    const yy = opts.y0 + 2 + Math.floor(rnd() * (opts.y1 - opts.y0 - 4))
+    const w = 1 + Math.floor(rnd() * 4)
+    c.rect(x, yy, x + w, yy + 1, rnd() > 0.5 ? PAL.rockLight : PAL.rockDark, Math.round((0.2 + rnd() * 0.4) * 255))
+  }
+}
+// a — валун.
+{
+  const c = new Canvas(96, 64)
+  c.roundRect(2, 8, 93, 63, 14, PAL.rockDark, 255)
+  c.roundRect(10, 14, 85, 56, 10, PAL.rockMid, 255)
+  rockBase(c, 121, { x0: 10, y0: 14, x1: 85, y1: 56, grain: 90 })
+  c.save('rock-a.png')
+}
+// b — угловатая глыба: стопка прямоугольников со сколами.
+{
+  const c = new Canvas(88, 72)
+  const rnd = mulberry32(122)
+  c.rect(6, 18, 78, 70, PAL.rockDark, 255)
+  c.rect(14, 10, 70, 62, PAL.rockMid, 255)
+  c.rect(24, 4, 58, 54, PAL.rockMid, 255)
+  // Сколотые зубцы по левой кромке.
+  for (let yy = 12; yy < 66; yy += 7) {
+    const jx = 12 + Math.floor(rnd() * 5)
+    c.rect(jx, yy, 14, yy + 3 + Math.floor(rnd() * 4), PAL.rockDark, 255)
+  }
+  rockBase(c, 123, { x0: 14, y0: 10, x1: 70, y1: 62, grain: 70 })
+  c.save('rock-b.png')
+}
+// c — россыпь камней: 4 мелких валуна разного размера.
+{
+  const c = new Canvas(80, 40)
+  const rnd = mulberry32(124)
+  const blobs = [
+    { x0: 4, y0: 16, x1: 30, y1: 38, r: 8 },
+    { x0: 26, y0: 8, x1: 56, y1: 36, r: 9 },
+    { x0: 50, y0: 20, x1: 76, y1: 38, r: 7 },
+    { x0: 14, y0: 26, x1: 34, y1: 39, r: 5 },
+  ]
+  for (const b of blobs) {
+    c.roundRect(b.x0, b.y0, b.x1, b.y1, b.r, rnd() > 0.5 ? PAL.rockDark : PAL.rockMid, 255)
+    c.rect(b.x0 + 1, b.y0, b.x1 - 1, b.y0 + 1, [0x4a, 0x4a, 0x62], 170)
+  }
+  c.save('rock-c.png')
+}
+// d — сталагмит-шпиль: высокий конус с зубчатым краем.
+{
+  const c = new Canvas(48, 104)
+  const rnd = mulberry32(125)
+  const cx = 24
+  for (let yy = 0; yy <= 100; yy++) {
+    const t = yy / 100
+    let half = Math.max(1, Math.round(20 * t + 1))
+    if (yy % 8 < 2) half = Math.max(1, half - 1 - Math.floor(rnd() * 2))
+    c.rect(cx - half, yy, cx + half, yy, yy % 3 ? PAL.rockDark : [0x18, 0x18, 0x24], 255)
+  }
+  c.rect(cx - 4, 2, cx + 4, 4, [0x4a, 0x4a, 0x62], 170)
+  c.save('rock-d.png')
+}
+// e — плита со светящейся жилой (редкая: ~7% скал, ставит glow-близнец).
+{
+  const c = new Canvas(96, 64)
+  c.roundRect(2, 10, 93, 63, 10, PAL.rockDark, 255)
+  c.roundRect(8, 16, 88, 58, 8, [0x1e, 0x1e, 0x2e], 255)
+  const rnd = mulberry32(126)
+  for (let i = 0; i < 60; i++) {
+    const x = 10 + Math.floor(rnd() * 78)
+    const yy = 18 + Math.floor(rnd() * 36)
+    c.rect(x, yy, x + 3, yy + 1, PAL.rockMid, Math.round((0.2 + rnd() * 0.35) * 255))
+  }
+  // Жила: ломаная линия биолюм-циана с ядром посветлее.
+  let vx = 20
+  let vy = 56
+  for (let s = 0; s < 26; s++) {
+    vx += 2 + Math.floor(rnd() * 3)
+    vy -= 1 + Math.floor(rnd() * 2)
+    c.px(vx, vy, PAL.cyan, 235)
+    c.px(vx, vy + 1, [0x2a, 0x6e, 0x62], 190)
+    if (rnd() > 0.6) c.px(vx + 1, vy, PAL.cyan, 140)
+  }
+  c.save('rock-e.png')
+}
+
+/** Варианты тайла камня (шаг 12): зерно/окаменелость/трещина — стена
+ *  перестаёт быть одним размноженным тайлом. tile-stone.png — вариант A. */
+{
+  // B — крупное зерно.
+  const c = new Canvas(16, 16)
+  c.fill([0x13, 0x13, 0x1b])
+  const rnd = mulberry32(41)
+  for (let i = 0; i < 9; i++) {
+    const x = Math.floor(rnd() * 14)
+    const yy = Math.floor(rnd() * 14)
+    c.rect(x, yy, x + 1 + Math.floor(rnd() * 2), yy + 1, PAL.rockDark, Math.round((0.4 + rnd() * 0.4) * 255))
+  }
+  c.save('tile-stone-b.png')
+}
+{
+  // C — окаменелость: светлая спираль-ракушка в толще.
+  const c = new Canvas(16, 16)
+  c.fill([0x14, 0x14, 0x1c])
+  const rnd = mulberry32(42)
+  for (let i = 0; i < 8; i++) {
+    c.rect(Math.floor(rnd() * 16), Math.floor(rnd() * 16),
+      Math.floor(rnd() * 16), Math.floor(rnd() * 16), PAL.rockDark, Math.round(0.35 * 255))
+  }
+  const fossil = [0x55, 0x55, 0x6e]
+  c.rect(7, 6, 10, 9, fossil, 200)
+  c.rect(5, 7, 6, 8, fossil, 160)
+  c.rect(9, 8, 12, 11, [0x3a, 0x3a, 0x50], 170)
+  c.save('tile-stone-c.png')
+}
+{
+  // D — трещина: тонкий тёмный зигзаг через тайл.
+  const c = new Canvas(16, 16)
+  c.fill([0x13, 0x13, 0x1b])
+  const rnd = mulberry32(43)
+  for (let i = 0; i < 10; i++) {
+    c.rect(Math.floor(rnd() * 16), Math.floor(rnd() * 16),
+      Math.floor(rnd() * 16), Math.floor(rnd() * 16), PAL.rockDark, Math.round(0.3 * 255))
+  }
+  let cx = 3 + Math.floor(rnd() * 4)
+  for (let yy = 1; yy < 15; yy++) {
+    if (yy % 3 === 0) cx += rnd() > 0.5 ? 1 : -1
+    c.rect(cx, yy, cx + 1, yy, [0x08, 0x08, 0x0e], 220)
+  }
+  c.save('tile-stone-d.png')
+}
+
+/** Земля по контексту (шаг 12): tile-dirt.png остаётся «внутренним краем»,
+ *  новые варианты — ориентация к воздуху: верх (пол — со светлой кромкой),
+ *  бок (вертикальная штриховка), низ (потолок — с потёками). */
+{
+  // top: пол — тёплая земля со светлой кромкой (rim-light сверху).
+  const c = new Canvas(16, 16)
+  c.fill([0x3a, 0x32, 0x2c])
+  const rnd = mulberry32(51)
+  for (let i = 0; i < 14; i++) {
+    c.rect(Math.floor(rnd() * 16), Math.floor(rnd() * 16),
+      Math.floor(rnd() * 16), Math.floor(rnd() * 16),
+      rnd() > 0.5 ? PAL.rockMid : [0x46, 0x3c, 0x33], Math.round((0.25 + rnd() * 0.4) * 255))
+  }
+  c.rect(0, 0, 15, 1, [0x5a, 0x50, 0x44], 235)
+  c.rect(0, 1, 15, 2, [0x4a, 0x40, 0x38], 140)
+  c.save('tile-dirt-top.png')
+}
+{
+  // side: стена — вертикальная штриховка, у краёв «скруглённая губа».
+  const c = new Canvas(16, 16)
+  c.fill([0x35, 0x2e, 0x28])
+  const rnd = mulberry32(52)
+  for (let x = 2; x < 14; x += 3) {
+    for (let yy = 0; yy < 16; yy++) {
+      if (rnd() > 0.35) c.rect(x, yy, x, yy, [0x40, 0x37, 0x2f], Math.round((0.3 + rnd() * 0.4) * 255))
+    }
+  }
+  c.rect(0, 0, 1, 15, [0x48, 0x3e, 0x34], 190)
+  c.rect(14, 0, 15, 15, [0x48, 0x3e, 0x34], 190)
+  c.save('tile-dirt-side.png')
+}
+{
+  // bottom: потолок — темнее, с потёками-сталактитиками по нижней кромке.
+  const c = new Canvas(16, 16)
+  c.fill([0x2e, 0x28, 0x22])
+  const rnd = mulberry32(53)
+  for (let i = 0; i < 12; i++) {
+    c.rect(Math.floor(rnd() * 16), Math.floor(rnd() * 12),
+      Math.floor(rnd() * 16), Math.floor(rnd() * 12),
+      rnd() > 0.5 ? PAL.rockMid : [0x38, 0x30, 0x28], Math.round((0.25 + rnd() * 0.35) * 255))
+  }
+  // Потёки: 3 сталактитика 1–3px с нижней кромки.
+  for (let d = 0; d < 3; d++) {
+    const dx = 2 + Math.floor(rnd() * 12)
+    const dh = 2 + Math.floor(rnd() * 3)
+    c.rect(dx, 15 - dh, dx, 15, [0x40, 0x37, 0x2c], 220)
+  }
+  c.rect(0, 0, 15, 1, [0x1e, 0x1a, 0x16], 200)
+  c.save('tile-dirt-bottom.png')
+}
+
+/** Лоза/корни с потолка 16×44: 2–3 нити с завитками и семенными
+ *  коробочками — дышат (sway-твин в сцене). */
+{
+  const c = new Canvas(16, 44)
+  const rnd = mulberry32(61)
+  const strandCol = [0x24, 0x36, 0x32]
+  const brightCol = [0x35, 0x5a, 0x4e]
+  for (let s = 0; s < 3; s++) {
+    let x = 4 + s * 4 + Math.floor(rnd() * 2)
+    const len = 26 + Math.floor(rnd() * 16)
+    for (let yy = 0; yy < len; yy++) {
+      if (yy % 8 === 0) x += rnd() > 0.5 ? 1 : -1
+      c.rect(x, yy, x, yy, strandCol, 235)
+      if (yy % 5 === 2) c.rect(x + 1, yy, x + 1, yy, brightCol, 150)
+    }
+    // Семенная коробочка на конце — тускло светится.
+    c.rect(x - 1, len - 3, x + 1, len, PAL.cyan, 90)
+    c.px(x, len - 1, PAL.cyan, 160)
+  }
+  c.save('decor-vine.png')
+}
 
 // ── Шаг 6: боёвка, кровь, добыча ───────────────────────────────────────────
 // Кровь трёхслойная: частицы (blood-drop), декали (blood-decal), съедобные

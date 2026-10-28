@@ -22,6 +22,8 @@ export interface BiomeBand {
   bone: number
   /** Гнёзд мобов на одну карту в этой полосе (данные для шага 5). */
   nests: number
+  /** Шаг 12: плотность лоз с потолков (доля подходящих клеток воздуха). */
+  vine: number
 }
 
 export interface GenConfig {

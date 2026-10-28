@@ -239,6 +239,8 @@ export class Combat {
       // Шаг 9: тяжёлый удар (≥12 или до половины HP) — рывок хроматики.
       if (damage >= 12 || this.vitals.hpRatio < 0.5) this.onHeavyHit?.(damage)
       this.invulnUntil = now + p.invulnAfterHitMs
+      // Шаг 12: удар сбивает со стены — сцеп теряется (гравитация назад).
+      this.creature.forceUncling()
       this.creature.hurtVisual(p.invulnAfterHitMs)
       this.blood.burst(this.creature.x, this.creature.y, {
         count: BALANCE.blood.particlesPerHit[0],

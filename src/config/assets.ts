@@ -22,13 +22,28 @@ export const ASSETS: AssetEntry[] = [
   // с кадрами 68×46 (scripts/process-hero.mjs, сырьё design/raw/v3).
   // Текстуры 'hero-*' здесь НЕ перечислены — см. BootScene.preload.
   { key: 'rock', file: 'rock.png' },
+  // Шаг 12: пять видов скал + лозы (лучший визуал пещеры).
+  { key: 'rock-a', file: 'rock-a.png' },
+  { key: 'rock-b', file: 'rock-b.png' },
+  { key: 'rock-c', file: 'rock-c.png' },
+  { key: 'rock-d', file: 'rock-d.png' },
+  { key: 'rock-e', file: 'rock-e.png' },
+  { key: 'decor-vine', file: 'decor-vine.png' },
   { key: 'mushroom', file: 'mushroom.png' },
   { key: 'spore', file: 'spore.png' },
   // Тайлы (шаг 4 — тайлмап процедурной пещеры).
   { key: 'tile-wall', file: 'tile-wall.png' },
   { key: 'tile-floor', file: 'tile-floor.png' },
   { key: 'tile-stone', file: 'tile-stone.png' },
+  // Шаг 12: варианты камня (зерно/окаменелость/трещина) и земля
+  // по контексту к воздуху: top (пол), side (стена), bottom (потолок).
+  { key: 'tile-stone-b', file: 'tile-stone-b.png' },
+  { key: 'tile-stone-c', file: 'tile-stone-c.png' },
+  { key: 'tile-stone-d', file: 'tile-stone-d.png' },
   { key: 'tile-dirt', file: 'tile-dirt.png' },
+  { key: 'tile-dirt-top', file: 'tile-dirt-top.png' },
+  { key: 'tile-dirt-side', file: 'tile-dirt-side.png' },
+  { key: 'tile-dirt-bottom', file: 'tile-dirt-bottom.png' },
   { key: 'decor-moss', file: 'decor-moss.png' },
   { key: 'decor-crystal', file: 'decor-crystal.png' },
   { key: 'decor-bone', file: 'decor-bone.png' },
@@ -36,6 +51,8 @@ export const ASSETS: AssetEntry[] = [
   { key: 'light-hole', file: 'light-hole.png' },
   { key: 'silhouette-far', file: 'silhouette-far.png' },
   { key: 'silhouette-near', file: 'silhouette-near.png' },
+  // Шаг 12: страта-задник — самая дальняя стена пещеры (напластования).
+  { key: 'bg-strata', file: 'bg-strata.png' },
   { key: 'mote', file: 'mote.png' },
   // Боёвка и поедание (шаг 6): кровь трёх слоёв, добыча, мясо, мутаген.
   { key: 'blood-drop', file: 'blood-drop.png' },

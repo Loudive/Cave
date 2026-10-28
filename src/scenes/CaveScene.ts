@@ -26,6 +26,7 @@ import { Vitals } from '../systems/Vitals'
 import { Eating } from '../systems/Eating'
 import { Combat } from '../systems/Combat'
 import { Mutations } from '../systems/Mutations'
+import type { RunSnapshot } from '../systems/RunState'
 import { Hud } from '../systems/Hud'
 import { FpsGuard } from '../systems/FpsGuard'
 import { AudioSystem } from '../systems/Audio'
@@ -55,6 +56,8 @@ import { MUTATIONS } from '../config/mutations'
 interface SceneData {
   seed?: string
   depth?: number
+  /** Шаг 12: снапшот забега с прошлого слоя (рост/диета/мутации живут дальше). */
+  run?: RunSnapshot
 }
 
 function randomSeedStr(): string {
@@ -82,6 +85,8 @@ export class CaveScene extends Phaser.Scene {
   private mask!: DarknessMask
   private motes!: SilhouetteMotes
   private parallax: { ts: Phaser.GameObjects.TileSprite; factor: number }[] = []
+  /** Шаг 12: текущий тон каждого параллакс-слоя (лерп к цвету биома). */
+  private parallaxTints: number[] = []
 
   // Шаг 6: системы боя и еды.
   private hitStop!: HitStop
@@ -119,13 +124,17 @@ export class CaveScene extends Phaser.Scene {
 
   private seedBase = ''
   private depth = 1
+  /** Шаг 12: снапшот забега с прошлого слоя (null — свежий забег). */
+  private carryRun: RunSnapshot | null = null
+  /** Шаг 12: следующая волна процедурного спавна вокруг игрока (мс). */
+  private roamNextAt = 0
   private exiting = false
   private dying = false
   private maxMeters = 0
   /** Модификаторы мутаций, живущие в сцене (thorns/stealth/stun/свет). */
   private sceneMods = { thorns: 0, detectMult: 1, stunMs: 0, lightMult: 1, sporeBreath: false, echo: false, spikeMane: 0 }
   /** Слои тайлмапа (для коллизий возрождённых мобов). */
-  private tileLayers: { stone: Phaser.Tilemaps.TilemapLayer; ground: Phaser.Tilemaps.TilemapLayer } | null = null
+  private tileLayers: import('../systems/TileBuilder').CaveLayers | null = null
 
   constructor() {
     super('Cave')
@@ -146,6 +155,8 @@ export class CaveScene extends Phaser.Scene {
     this.seedBase = data.seed ?? url.searchParams.get('seed') ?? randomSeedStr()
     this.depth = data.depth ?? (Number(url.searchParams.get('d')) || 1)
     this.depth = Math.max(1, Math.floor(this.depth))
+    // Шаг 12: жизнь продолжается — снапшот забега приходит с прошлым слоем.
+    this.carryRun = data.run ?? null
 
     // Seed сохраняется в URL — пещера воспроизводима и шарится.
     url.searchParams.set('seed', this.seedBase)
@@ -182,8 +193,6 @@ export class CaveScene extends Phaser.Scene {
     this.audio.ensureAmbient()
     this.mask = new DarknessMask(this)
 
-    this.buildBackgroundRocks()
-
     // ── Существо ────────────────────────────────────────────────────────────
     const kb = this.input.keyboard!
     const keys: CreatureKeys = {
@@ -199,13 +208,18 @@ export class CaveScene extends Phaser.Scene {
         kb.addKey(Phaser.Input.Keyboard.KeyCodes.W),
         kb.addKey(Phaser.Input.Keyboard.KeyCodes.UP),
       ],
+      // Шаг 12: вниз по стене (S + стрелка вниз) — ползание на сцепе.
+      down: [
+        kb.addKey(Phaser.Input.Keyboard.KeyCodes.S),
+        kb.addKey(Phaser.Input.Keyboard.KeyCodes.DOWN),
+      ],
       jump: kb.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE),
     }
 
     const spawnX = this.cave.entrance.x * tile + tile / 2
     const spawnY = this.cave.entrance.y * tile + tile / 2 - 6
     this.creature = new Creature(this, spawnX, spawnY, keys)
-    this.physics.add.collider(this.creature, [layers.stone, layers.ground])
+    this.physics.add.collider(this.creature, layers.solid)
 
     this.creatureGlow = this.add.image(spawnX, spawnY, 'glow-cyan')
       .setScale(1.7)
@@ -265,7 +279,7 @@ export class CaveScene extends Phaser.Scene {
     }
 
     this.mutations = new Mutations(this, this.vitals)
-    this.mutations.onApply = (def) => this.applyMutation(def)
+    this.mutations.onApply = (def, silent) => this.applyMutation(def, silent)
 
     this.combat = new Combat(
       this, this.creature, this.vitals,
@@ -303,6 +317,11 @@ export class CaveScene extends Phaser.Scene {
     // Шаг 9: juice-слой (вспышки, хроматика, слоу-мо, Glow, искры).
     this.vfx = new Vfx(this, this.blood, this.hitStop)
     QUALITY.onChange(() => this.vfx.refreshForQuality())
+
+    // Шаг 12: скалы (5 видов, биомный тон) и лозы с потолков — здесь,
+    // потому что редкие плиты-жилы регистрируют свечение через this.vfx.
+    this.buildBackgroundRocks()
+    this.buildVines()
 
     // Шаг 11: перки Гнезда применяются после генов — древо усиливает героя.
     this.nestProfile = loadNestSave()
@@ -365,6 +384,10 @@ export class CaveScene extends Phaser.Scene {
     this.buildMutagenFlowers()
     this.buildGenePools()
     this.spawnElites()
+
+    // Шаг 12: забег с прошлого слоя — рост, диета, мутации, спутник
+    // (после генов и перков: мутации вешают свои SET-модификаторы поверх).
+    this.restoreRun()
 
     // «Кровавый напор»: после трапезы — рывок скорости.
     this.vitals.onEat = () => {
@@ -513,6 +536,8 @@ export class CaveScene extends Phaser.Scene {
         this.spores.update(time, this.creature.x, this.creature.y, this.vitals.alive, this.enemies)
         this.fire.update(time, this.creature.x, this.creature.y, this.vitals.alive, this.enemies)
         this.eco.update(time)
+        // Шаг 12: жизнь сама находит игрока — процедурный спавн вне экрана.
+        this.roamSpawnTick(time)
 
         // Шаг 8: «Споровый вдох» — зона Грибных полян.
         const biomeIdx = biomeIndexAtMeters(this.cave.depthOffsetMeters + this.creature.y * GEN.map.metersPerPixel)
@@ -569,6 +594,21 @@ export class CaveScene extends Phaser.Scene {
       this.miniMap.update(this.creature.x, this.creature.y, this.cave.tile)
 
       const cam = this.cameras.main
+      // Шаг 12: тон параллакса — плавный лерп к цвету биома (глубина
+      // ощущается цветом: красные жилы, кислотные гроты, лавовые бездны).
+      const tintBand = GEN.biomeBands[biomeIndexAtMeters(this.cave.depthOffsetMeters + this.creature.y * GEN.map.metersPerPixel)]
+      if (tintBand) {
+        const bandCol = bandColorInt(tintBand)
+        for (let li = 0; li < this.parallax.length; li++) {
+          const strength = LIGHT.parallax[li].tintStrength
+          const target = mixWhiteToward(0xffffff, bandCol, strength)
+          const next = lerpColorInt(this.parallaxTints[li], target, 0.03)
+          if (next !== this.parallaxTints[li]) {
+            this.parallaxTints[li] = next
+            this.parallax[li].ts.setTint(next)
+          }
+        }
+      }
       for (const p of this.parallax) {
         p.ts.tilePositionX = cam.scrollX * p.factor
         p.ts.tilePositionY = cam.scrollY * p.factor
@@ -762,9 +802,9 @@ export class CaveScene extends Phaser.Scene {
   }
 
   /** Мутация подобрана: сцена вешает хуки на Creature и свой mods. */
-  private applyMutation(def: import('../config/mutations').MutationDef): void {
-    // Шаг 10: подбор кристалла-мутации.
-    this.audio.play(def.rarity === 'legendary' ? 'gene' : 'pickup')
+  private applyMutation(def: import('../config/mutations').MutationDef, silent = false): void {
+    // Шаг 10: подбор кристалла-мутации (тихий режим — перенос между слоями, шаг 12).
+    if (!silent) this.audio.play(def.rarity === 'legendary' ? 'gene' : 'pickup')
     const e = def.effect
     switch (e.type) {
       case 'grip':
@@ -868,19 +908,26 @@ export class CaveScene extends Phaser.Scene {
       if (kind === 'death') s.stats.runs++
       if (kind === 'death') s.stats.deaths++
       s.stats.bestDepthM = Math.max(s.stats.bestDepthM, this.maxMeters)
-      s.stats.bestEaten = Math.max(s.stats.bestEaten, this.vitals.eatenCount)
-      s.stats.totalEaten += this.vitals.eatenCount
+      // Шаг 12: счётчики еды и рекорды забега — только на смерти.
+      // Раньше totalEaten += добавлялся и на каждом спуске, а забег
+      // теперь живёт сквозь слои — было бы задвоение на каждом переходе.
+      if (kind === 'death') {
+        s.stats.bestEaten = Math.max(s.stats.bestEaten, this.vitals.eatenCount)
+        s.stats.totalEaten += this.vitals.eatenCount
+      }
       // Пещеры: уникальные сиды (шаг 11 — «пещеры посещено»). Кап — память.
       if (!s.seenSeeds.includes(this.seedBase)) {
         s.seenSeeds.push(this.seedBase)
         if (s.seenSeeds.length > 300) s.seenSeeds.splice(0, s.seenSeeds.length - 300)
       }
       s.stats.cavesVisited = s.seenSeeds.length
-      // Лучший забег — по Эссенции, тай-брейк по глубине.
-      const better = total > s.stats.bestRun.essence
-        || (total === s.stats.bestRun.essence && this.maxMeters > s.stats.bestRun.depthM)
-      if (better) {
-        s.stats.bestRun = { essence: total, depthM: this.maxMeters, eaten: this.vitals.eatenCount }
+      // Лучший забег — по Эссенции, тай-брейк по глубине (тоже только финал).
+      if (kind === 'death') {
+        const better = total > s.stats.bestRun.essence
+          || (total === s.stats.bestRun.essence && this.maxMeters > s.stats.bestRun.depthM)
+        if (better) {
+          s.stats.bestRun = { essence: total, depthM: this.maxMeters, eaten: this.vitals.eatenCount }
+        }
       }
     })
     this.lastDepthBonus = depthBonus
@@ -1021,6 +1068,47 @@ export class CaveScene extends Phaser.Scene {
     return n
   }
 
+  /**
+   * Шаг 12: процедурный спавн вокруг игрока — каждые roamIntervalMs
+   * вне экрана, в кольце roamRingTiles, до roamMaxBatch мобов вида по
+   * биому этой точки. Пещера не пустует, пока игрок исследует: жизнь
+   * приходит сама (гнёзда остаются главным источником населения).
+   */
+  private roamSpawnTick(time: number): void {
+    if (time < this.roamNextAt) return
+    const [lo, hi] = ENEMIES.spawn.roamIntervalMs
+    this.roamNextAt = time + Phaser.Math.Between(lo, hi)
+    if (this.enemies.length >= BALANCE.spawn.maxAlive) return
+
+    const rng = new Rng(hashSeed(`${this.cave.seed}:roam:${Math.floor(time / 1000)}`))
+    const tile = this.cave.tile
+    const px = this.creature.x / tile
+    const py = this.creature.y / tile
+    const [rMin, rMax] = ENEMIES.spawn.roamRingTiles
+    const view = this.cameras.main.worldView
+    let spawned = 0
+
+    for (let tries = 0; tries < 80 && spawned < ENEMIES.spawn.roamMaxBatch; tries++) {
+      if (this.enemies.length >= BALANCE.spawn.maxAlive) break
+      const angle = rng.float() * Math.PI * 2
+      const dist = rMin + rng.float() * (rMax - rMin)
+      const tx = Math.round(px + Math.cos(angle) * dist)
+      const ty = Math.round(py + Math.sin(angle) * dist)
+      if (tx < 1 || ty < 1 || tx >= this.cave.cols - 1 || ty >= this.cave.rows - 1) continue
+      const i = ty * this.cave.cols + tx
+      // Воздух с полом под ним.
+      if (this.cave.solid[i] !== 0) continue
+      if (this.cave.solid[i + this.cave.cols] !== 1) continue
+      // Строго вне экрана (с запасом) — никакого «поп-ин» на глазах.
+      const wx = tx * tile + tile / 2
+      const wy = ty * tile + tile / 2
+      if (wx > view.x - 48 && wx < view.right + 48 && wy > view.y - 48 && wy < view.bottom + 48) continue
+      const speciesId = this.pickSpeciesForBiome(this.cave.biomes[i], rng)
+      if (this.speciesCount(speciesId) >= ENEMIES.spawn.maxPerSpecies) continue
+      if (this.addEnemyAt(speciesId, wx, wy)) spawned++
+    }
+  }
+
   /** Возрождение у гнезда (вызывает Ecosystem): капы, потолок, вид по биому. */
   private spawnEnemyAtNest(nest: NestRecord): boolean {
     if (this.enemies.length >= BALANCE.spawn.maxAlive) return false
@@ -1040,7 +1128,7 @@ export class CaveScene extends Phaser.Scene {
     const enemy = new Enemy(this, wx, wy, speciesId, this.enemyCallbacks())
     enemy.nestIndex = nestIndex
     if (this.tileLayers) {
-      this.physics.add.collider(enemy, [this.tileLayers.stone, this.tileLayers.ground])
+      this.physics.add.collider(enemy, this.tileLayers.solid)
     }
     this.enemies.push(enemy)
     return enemy
@@ -1100,10 +1188,56 @@ export class CaveScene extends Phaser.Scene {
     this.exiting = true
     // Шаг 11: спуск глубже — Эссенция и рекорды уровня падают в Гнездо.
     this.bankRunToNest('descend')
+    // Шаг 12: жизнь продолжается — рост, диета, мутации и спутник
+    // переходят на следующий слой (раньше обнулялись — рака пользователя).
+    const snapshot = this.snapshotRun()
     this.cameras.main.fadeOut(420, 4, 4, 8)
     this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
-      this.scene.restart({ seed: this.seedBase, depth: this.depth + 1 })
+      this.scene.restart({ seed: this.seedBase, depth: this.depth + 1, run: snapshot })
     })
+  }
+
+  /** Шаг 12: снять снапшот забега для переноса на следующий слой. */
+  private snapshotRun(): RunSnapshot {
+    return {
+      vitals: {
+        hp: this.vitals.hp,
+        maxHp: this.vitals.maxHp,
+        hunger: this.vitals.hunger,
+        maxHunger: this.vitals.maxHunger,
+        xp: this.vitals.xp,
+        level: this.vitals.level,
+        eatenCount: this.vitals.eatenCount,
+        mutationsCount: this.vitals.mutationsCount,
+      },
+      mutationIds: [...this.mutations.ownedList.map((m) => m.id)],
+      eatenBySpecies: { ...this.eating.eatenBySpecies },
+      genesGained: [...this.genesGained],
+      companion: !!this.companion,
+    }
+  }
+
+  /** Шаг 12: восстановить забег со снапшота прошлого слоя (тихо, без фанфар). */
+  private restoreRun(): void {
+    const run = this.carryRun
+    if (!run) return
+    const v = this.vitals
+    v.hp = run.vitals.hp
+    v.maxHp = run.vitals.maxHp
+    v.hunger = run.vitals.hunger
+    v.maxHunger = run.vitals.maxHunger
+    v.xp = run.vitals.xp
+    v.level = run.vitals.level
+    v.eatenCount = run.vitals.eatenCount
+    v.mutationsCount = run.vitals.mutationsCount
+    Object.assign(this.eating.eatenBySpecies, run.eatenBySpecies)
+    this.genesGained.push(...run.genesGained)
+    // Мутации переигрываются тихо: эффекты — да, баннеры и звук — нет.
+    this.mutations.restore(run.mutationIds)
+    // Спутник возвращается при первой же добыче (тот же «Мать-корона»).
+    this.pendingCompanion = run.companion
+    // Визуальный рост уровня применяется заново к спрайту.
+    this.creature.applyGrowth(v.bodyScale)
   }
 
   /** Параллакс-силуэты (шаг 5): tileSprite на весь кадр, factor из light.json. */
@@ -1116,23 +1250,110 @@ export class CaveScene extends Phaser.Scene {
         .setAlpha(p.alpha),
       factor: p.factor,
     }))
+    this.parallaxTints = LIGHT.parallax.map(() => 0xffffff)
   }
 
   /** Дальние силуэты камней в воздушных карманах (параллакс-настроение). */
   private buildBackgroundRocks(): void {
+    // Шаг 12: пять видов скал вместо одной текстуры — валун/глыба/россыпь/
+    // шпиль/плита со светящейся жилой (редкая, ~7%, даёт glow-близнец).
+    // Скалы тонируются цветом биома — глубина ощущается без света.
     const rng = new Rng(hashSeed(this.cave.seed + ':rocks'))
     const tile = this.cave.tile
+    const variants = ['rock-a', 'rock-b', 'rock-c', 'rock-d'] as const
     let placed = 0
-    for (let tries = 0; tries < 400 && placed < 34; tries++) {
+    for (let tries = 0; tries < 700 && placed < 64; tries++) {
       const x = rng.int(this.cave.cols)
       const y = rng.int(this.cave.rows)
       const i = y * this.cave.cols + x
       if (this.cave.solid[i] !== 0) continue
-      this.add.image(x * tile + tile / 2, y * tile + tile / 2, 'rock')
-        .setAlpha(0.12 + rng.float() * 0.16)
+      const band = GEN.biomeBands[this.cave.biomes[i]]
+      const rare = rng.float() < 0.07
+      const tex = rare ? 'rock-e' : variants[rng.int(variants.length)]
+      const wx = x * tile + tile / 2
+      const wy = y * tile + tile / 2
+      const img = this.add.image(wx, wy, tex)
+        .setAlpha(0.14 + rng.float() * 0.2)
         .setAngle(rng.int(360))
-        .setScale(0.8 + rng.float() * 1.8)
+        .setScale(0.7 + rng.float() * 1.6)
         .setDepth(0)
+      if (rare) {
+        // Жила светится в темноте: слабое биолюм-пятно над плитой.
+        const glow = this.add.image(wx, wy, band?.glow ?? 'glow-cyan')
+          .setAlpha(0.16)
+          .setScale(0.5)
+          .setBlendMode(Phaser.BlendModes.ADD)
+          .setDepth(0)
+        this.vfx?.registerGlow(glow)
+      } else if (band) {
+        // Скала несёт оттенок биома — красные жилы, кислотные гроты, лавы.
+        const col = Phaser.Display.Color.IntegerToColor(bandColorInt(band)).darken(62)
+        img.setTint(col.color)
+      }
+      placed++
+    }
+
+    // Шаг 12: ЯВНЫЕ скалы на полу — валун/глыба/россыпь/шпиль стоят
+    // на земле в воздушных карманах (не силуэты: видны без света рядом).
+    let nearPlaced = 0
+    for (let tries = 0; tries < 900 && nearPlaced < 26; tries++) {
+      const x = rng.int(this.cave.cols)
+      const y = rng.int(this.cave.rows)
+      const i = y * this.cave.cols + x
+      if (this.cave.solid[i] !== 0) continue
+      if (this.cave.solid[i + this.cave.cols] !== 1) continue
+      // Не прямо у входа — стартовая площадка чистая.
+      if (Math.abs(x - this.cave.entrance.x) < 8 && Math.abs(y - this.cave.entrance.y) < 6) continue
+      const band = GEN.biomeBands[this.cave.biomes[i]]
+      const tex = rng.float() < 0.1 ? 'rock-e' : variants[rng.int(variants.length)]
+      const wx = x * tile + tile / 2 + rng.range(-4, 4)
+      const scale = tex === 'rock-d' ? 0.55 + rng.float() * 0.5 : 0.8 + rng.float() * 0.9
+      const img = this.add.image(wx, (y + 1) * tile, tex)
+        .setOrigin(0.5, 1)
+        .setScale(scale)
+        .setAlpha(0.72 + rng.float() * 0.2)
+        .setDepth(2)
+        // Шпили не вращаем, валуны — чуть наклоняем.
+        .setAngle(tex === 'rock-d' || tex === 'rock-e' ? 0 : rng.range(-8, 8))
+      if (tex !== 'rock-e' && band) {
+        const col = Phaser.Display.Color.IntegerToColor(bandColorInt(band)).darken(45)
+        img.setTint(col.color)
+      }
+      nearPlaced++
+    }
+  }
+
+  /** Шаг 12: лозы с потолков — дышат (sway-твин), плотность по биому. */
+  private buildVines(): void {
+    const rng = new Rng(hashSeed(this.cave.seed + ':vines'))
+    const tile = this.cave.tile
+    let placed = 0
+    for (let tries = 0; tries < 1600 && placed < 90; tries++) {
+      const x = rng.int(this.cave.cols)
+      const y = rng.int(this.cave.rows)
+      const i = y * this.cave.cols + x
+      // Воздух с потолком над ним.
+      if (this.cave.solid[i] !== 0) continue
+      if (this.cave.solid[i - this.cave.cols] !== 1) continue
+      const band = GEN.biomeBands[this.cave.biomes[i]]
+      if (!band || rng.float() >= band.vine) continue
+      const wx = x * tile + tile / 2 + rng.range(-3, 3)
+      const wy = y * tile
+      const vine = this.add.image(wx, wy, 'decor-vine')
+        .setOrigin(0.5, 0)
+        .setDepth(2)
+        .setScale(0.8 + rng.float() * 0.7)
+      // Покачивание: у каждой лозы своя фаза и амплитуда — пещера дышит.
+      const amp = 0.04 + rng.float() * 0.05
+      this.tweens.add({
+        targets: vine,
+        rotation: { from: -amp, to: amp },
+        duration: 2200 + rng.int(1800),
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.InOut',
+        delay: rng.int(1800),
+      })
       placed++
     }
   }
@@ -1549,10 +1770,7 @@ export class CaveScene extends Phaser.Scene {
         this.blood.number(victim.x, victim.y - 14, `${applied}`, '#D8B4FF')
       },
     })
-    this.physics.add.collider(this.companion, [
-      this.tileLayers!.stone,
-      this.tileLayers!.ground,
-    ])
+    this.physics.add.collider(this.companion, this.tileLayers!.solid)
   }
 
   /** Обновление цветков/лунок/кристаллов/спутника (шаг 8). */
@@ -1600,10 +1818,13 @@ export class CaveScene extends Phaser.Scene {
 
   /** Телепорт существа (хук верификации и геномные переходы). */
   private teleportPlayer(x: number, y: number): void {
-    this.creature.setPosition(x, y)
+    // Шаг 12: телепорт сбрасывает сцеп со стены (гравитация назад).
+    this.creature.forceUncling()
+    // body.reset — каноничный телепорт Arcade-тела: setPosition двигает
+    // только спрайт, а postUpdate возвращал тело на старое место
+    // (грабля поймана в верификации карабканья, шаг 12).
     const b = this.creature.body as Phaser.Physics.Arcade.Body
-    b.velocity.set(0)
-    b.blocked.none = true
+    b.reset(x, y)
   }
 
   /** Состав популяции «вид×N» для debug-оверлея. */
@@ -1832,7 +2053,52 @@ export class CaveScene extends Phaser.Scene {
         setMusic: (v: number) => this.audio.setMusicVol(v),
         setSfx: (v: number) => this.audio.setSfxVol(v),
       },
+      // ── Шаг 12: верификация переноса забега и карабканья ──────────────
+      /** Твёрдая ли клетка (для поиска стены в тесте цепляния). */
+      solidAt: (tx: number, ty: number) => this.cave.solid[ty * this.cave.cols + tx] === 1,
+      /** Телепорт к вратам (проверка переноса роста/съеденных на слой ниже). */
+      gotoExit: () => {
+        const t = this.cave.tile
+        const x = this.cave.exit.x * t + t / 2
+        const y = this.cave.exit.y * t + t / 2
+        this.teleportPlayer(x, y - 20)
+        return { x, y }
+      },
+      /** Выдать мутацию по id (проверка тихого восстановления на новом слое). */
+      grantMutation: (id: string) => {
+        const def = MUTATIONS.pool.find((m) => m.id === id)
+        if (!def) return null
+        this.mutations.grantForTest(def)
+        return { id: def.id, owned: this.mutations.ownedCount }
+      },
+      /** Список id мутаций забега. */
+      mutationIds: () => [...this.mutations.ownedList.map((m) => m.id)],
+      /** Мобов живых сейчас (проверка плотности шага 12). */
+      aliveEnemies: () => this.enemies.length,
       dying: () => this.dying,
     }
   }
+}
+
+// ── Шаг 12: цветовые хелперы тонировки параллакса ─────────────────────────
+
+/** Смешать белый с цветом биома: доля strength цвета в результате. */
+function mixWhiteToward(white: number, color: number, strength: number): number {
+  const wr = (white >> 16) & 0xff, wg = (white >> 8) & 0xff, wb = white & 0xff
+  const cr = (color >> 16) & 0xff, cg = (color >> 8) & 0xff, cb = color & 0xff
+  const r = Math.round(wr + (cr - wr) * strength)
+  const g = Math.round(wg + (cg - wg) * strength)
+  const b = Math.round(wb + (cb - wb) * strength)
+  return (r << 16) | (g << 8) | b
+}
+
+/** Плавный переход цвета: k — доля пути за кадр (0..1). */
+function lerpColorInt(from: number, to: number, k: number): number {
+  if (from === to) return from
+  const fr = (from >> 16) & 0xff, fg = (from >> 8) & 0xff, fb = from & 0xff
+  const tr = (to >> 16) & 0xff, tg = (to >> 8) & 0xff, tb = to & 0xff
+  const r = Math.round(fr + (tr - fr) * k)
+  const g = Math.round(fg + (tg - fg) * k)
+  const b = Math.round(fb + (tb - fb) * k)
+  return (r << 16) | (g << 8) | b
 }

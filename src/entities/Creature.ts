@@ -10,7 +10,8 @@ export type CreatureState =
   | 'ground'      // стоит/бежит по полу
   | 'jump'        // поднимается после прыжка
   | 'fall'        // падает
-  | 'wall-slide'  // скользит по стене
+  | 'wall-slide'  // скользит по стене (быстрый подъём у стены)
+  | 'wall-cling'  // шаг 12: зацепился — висит/ползёт по стене
   | 'glide'       // планирует (удержание вверх)
   | 'wall-lock'   // инерция после wall jump (ввод по горизонтали отключён)
 
@@ -19,8 +20,10 @@ export interface CreatureKeys {
   left: Phaser.Input.Keyboard.Key[]
   /** Клавиши вправо (D + стрелка). */
   right: Phaser.Input.Keyboard.Key[]
-  /** Вверх: удержание в воздухе = планирование (W + стрелка). */
+  /** Вверх: удержание в воздухе = планирование (W + стрелка), на стене — ползти вверх. */
   glide: Phaser.Input.Keyboard.Key[]
+  /** Шаг 12: вниз (S + стрелка) — ползти вниз по стене. */
+  down: Phaser.Input.Keyboard.Key[]
   /** Прыжок: пробел. */
   jump: Phaser.Input.Keyboard.Key
 }
@@ -94,6 +97,14 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
   // Переменная высота прыжка: срез применяется один раз за прыжок.
   private jumpCutDone = true
 
+  // ── Шаг 12: карабканье по стенам ────────────────────────────────
+  /** Зацепился за стену: гравитация выключена, ползёт когтями. */
+  private clinging = false
+  /** Сторона зацепа: -1 левая стена, 1 правая. */
+  private clingDir: 1 | -1 = 1
+  /** С какого мс держится ввод ОТ стены (отцепление по unstickMs). */
+  private unstickSince = -Infinity
+
   // Шаг 11: кадры укуса/урона держатся до этого времени (мс сцены).
   private hurtTexUntil = -Infinity
 
@@ -154,9 +165,16 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
     this.readWalls(body)
     this.handleTimers(body, now)
 
-    this.horizontalControl(body, dt)
+    // Шаг 12: цепляние — до обычной воздушной логики (она выключена
+    // пока висим на стене: гравитация_off, скорость задаём сами).
+    if (this.clinging) {
+      this.clingLogic(body, now, dt)
+    } else {
+      this.horizontalControl(body, dt)
+      this.tryLatch(body, now)
+    }
     this.jumpLogic(body, now)
-    this.airLogic(body, dt)
+    if (!this.clinging) this.airLogic(body, dt)
 
     this.updateStateName(body)
     this.updateVisuals(body)
@@ -173,7 +191,9 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
     this.setFlipX(this.facingDir < 0)
     // Банк в воздухе: падение клюёт носом, подъём задирает морду —
     // дешёвая кодовая анимация поверх кадров (продаёт движение).
+    // На сцепе (шаг 12) — наклон к стене когтями: монстр «обнимает» её.
     if (this.stateName === 'ground') this.setRotation(0)
+    else if (this.stateName === 'wall-cling') this.setRotation(this.clingDir * MOVEMENT.climb.clingTiltRad)
     else this.setRotation(Phaser.Math.Clamp(body.velocity.y / 1200, -0.12, 0.22))
 
     // Одноразовые анимации не перебиваются состоянием: укус играет
@@ -188,6 +208,11 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
       this.play('hero-eat', true)
     } else if (this.stateName === 'glide') {
       this.play('hero-glide', true)
+    } else if (this.stateName === 'wall-cling') {
+      // На стене крылья сложены, лапы растопырены — кадр полёта без маха.
+      this.anims.stop()
+      this.setTexture('hero-glide')
+      this.setFrame(ANIMS.airborneFrame)
     } else if (
       this.stateName === 'jump'
       || this.stateName === 'fall'
@@ -210,7 +235,9 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
    * (6 кадров, кадр замирает на последнем). Сцена скрывает спрайт через
    * ANIMS.death.hideAfterMs и оставляет кровавые декали.
    */
+  /** Смерть с любого состояния: отцепиться от стены (гравитация назад). */
   playDeathVisual(): void {
+    this.forceUncling()
     this.deathPlaying = true
     this.anims.stop()
     this.setRotation(0)
@@ -245,11 +272,91 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
   // ── Внутренняя механика ────────────────────────────────────────────────
 
   private readWalls(body: Phaser.Physics.Arcade.Body): void {
-    const pushingLeft = this.down(this.keys.left)
-    const pushingRight = this.down(this.keys.right)
-    const againstLeftWall = body.blocked.left && pushingLeft
-    const againstRightWall = body.blocked.right && pushingRight
-    this.wallDir = againstLeftWall ? -1 : againstRightWall ? 1 : 0
+    // Шаг 12: контакт со стеной — блокировка ИЛИ касание (без требования
+    // нажатия в сторону стены: цепляемся «с прыжка», просто коснувшись).
+    const touchLeft = body.blocked.left || body.touching.left
+    const touchRight = body.blocked.right || body.touching.right
+    this.wallDir = touchLeft ? -1 : touchRight ? 1 : 0
+  }
+
+  // ── Шаг 12: карабканье (цепляние + ползание) ─────────────────────
+
+  /**
+   * Условия зацепа: в воздухе, стена рядом, НЕ сразу после wall jump
+   * (wallLock — иначе прилипнет обратно) и не на взлёте быстрее
+   * latchMaxRiseSpeed (не липнем в разгаре прыжка — флоу прыжков).
+   */
+  private tryLatch(body: Phaser.Physics.Arcade.Body, now: number): void {
+    if (body.blocked.down) return
+    if (this.wallDir === 0) return
+    if (now < this.wallLockUntil) return
+    if (body.velocity.y < -MOVEMENT.climb.latchMaxRiseSpeed) return
+    this.clinging = true
+    this.clingDir = this.wallDir as 1 | -1
+    this.unstickSince = -Infinity
+    // Цепляемся: гасим вертикаль, но СРАЗУ прижимаемся к стене —
+    // если обнулить и горизонталь, следующий физ-шаг пройдёт без
+    // контакта, clingLogic решит «стены нет» и отцепит обратно
+    // (гонка поймана в верификации, шаг 12).
+    body.velocity.set(this.clingDir * MOVEMENT.climb.clingPressSpeed, 0)
+    body.setAllowGravity(false)
+    this.facingDir = this.clingDir
+  }
+
+  /** Ползание по стене: вверх/вниз, отцепление вводом от стены или полом. */
+  private clingLogic(body: Phaser.Physics.Arcade.Body, now: number, dt: number): void {
+    const climb = MOVEMENT.climb
+    // Стена кончилась (выползли за край) или стоим — отцепиться.
+    const stillOnWall = body.blocked.left || body.touching.left
+      ? -1
+      : body.blocked.right || body.touching.right ? 1 : 0
+    if (stillOnWall === 0 || body.blocked.down) {
+      this.uncling(body)
+      return
+    }
+    this.clingDir = stillOnWall as 1 | -1
+    this.wallDir = stillOnWall
+
+    // Ввод ОТ стены дольше unstickMs — сознательно отцепиться.
+    const away = this.clingDir === 1 ? this.down(this.keys.left) : this.down(this.keys.right)
+    if (away) {
+      if (this.unstickSince === -Infinity) this.unstickSince = now
+      if (now - this.unstickSince >= climb.unstickMs) {
+        this.uncling(body)
+        // Лёгкий толчок от стены — не прилипнем обратно на следующем кадре.
+        body.velocity.x = -this.clingDir * MOVEMENT.run.runMaxSpeed * 0.35
+        return
+      }
+    } else {
+      this.unstickSince = -Infinity
+    }
+
+    // Ползание: «Липкие когти» (wallSlideMult<1) — быстрее вверх, медленней вниз.
+    const sticky = this.mods.wallSlideMult
+    const upHeld = this.down(this.keys.glide)
+    const downHeld = this.down(this.keys.down)
+    let targetVy = 0
+    if (upHeld && !body.blocked.up) targetVy = -climb.climbUpSpeed * (2 - sticky)
+    else if (downHeld) targetVy = climb.climbDownSpeed * sticky
+    body.velocity.y = moveToward(body.velocity.y, targetVy, climb.crawlAccel * dt)
+    // Прижим к стене: флаги blocked/touching гаснут каждый физ-шаг без
+    // контакта — без прижима сцеп бы рвался на втором же кадре.
+    body.velocity.x = this.clingDir * climb.clingPressSpeed
+    // Морда — к стене.
+    this.facingDir = this.clingDir
+  }
+
+  /** Отцепиться: вернуть гравитацию, выйти из состояния цепляния. */
+  private uncling(body: Phaser.Physics.Arcade.Body): void {
+    if (!this.clinging) return
+    this.clinging = false
+    body.setAllowGravity(true)
+  }
+
+  /** Публичное отцепление (урон со стены, смерть, телепорт). */
+  forceUncling(): void {
+    const body = this.body as Phaser.Physics.Arcade.Body
+    this.uncling(body)
   }
 
   private handleTimers(body: Phaser.Physics.Arcade.Body, now: number): void {
@@ -309,11 +416,13 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
       this.lastJumpPressedAt = -Infinity
       this.jumpCutDone = false
       this.airJumpsLeft = this.mods.airJumps
+      this.uncling(body)
       return
     }
 
-    // 2) Wall jump — от любой стены, даже в падении.
+    // 2) Wall jump — от любой стены, даже в падении (и со сцепа: шаг 12).
     if (this.wallDir !== 0) {
+      this.uncling(body)
       body.velocity.y = wall.wallJumpVelocityY
       body.velocity.x = -this.wallDir * wall.wallJumpVelocityX
       this.wallLockUntil = now + wall.wallLockTime
@@ -435,6 +544,8 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
     const now = this.scene.time.now
     if (body.blocked.down) {
       this.stateName = 'ground'
+    } else if (this.clinging) {
+      this.stateName = 'wall-cling'
     } else if (now < this.wallLockUntil) {
       this.stateName = 'wall-lock'
     } else if (this.wallDir !== 0 && body.velocity.y > 0) {

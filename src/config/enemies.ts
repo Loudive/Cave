@@ -202,6 +202,10 @@ export interface EnemiesConfig {
     perNest: [number, number]
     biomeFallback: string[]
     maxPerSpecies: number
+    /** Шаг 12: процедурный спавн вокруг игрока (пещера не пустует). */
+    roamIntervalMs: [number, number]
+    roamRingTiles: [number, number]
+    roamMaxBatch: number
     byBiome: { id: string; weight: number }[][]
   }
   eco: EcoConfig

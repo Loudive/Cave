@@ -85,8 +85,8 @@
     "maxOwned": 6
   },
   "spawn": {
-    "entrancePrey": 2,
-    "maxAlive": 22
+    "entrancePrey": 3,
+    "maxAlive": 34
   },
   "spore": {
     "slowFactor": 0.35,
