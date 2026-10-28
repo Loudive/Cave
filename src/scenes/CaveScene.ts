@@ -379,18 +379,21 @@ export class CaveScene extends Phaser.Scene {
       })
     }
     // Шаг 13 (Carrion/Dead Cells): сквош приземления + пыль, стретч отрыва.
+    // Шаг 16: база твинов — creature.baseScale (рост × масштаб анимации):
+    // голой bodyScale приземление сбрасывало анимационный множитель.
     this.creature.onHardLand = (impactVy) => {
       const j = MOVEMENT.juice
       const k = Math.min(1, Math.max(0, (impactVy - j.landMinVy) / (j.landMaxVy - j.landMinVy)))
+      const base = this.creature.baseScale
       this.tweens.killTweensOf(this.creature)
       this.tweens.add({
         targets: this.creature,
-        scaleX: this.vitals.bodyScale * (1 + (j.landSquashX - 1) * k),
-        scaleY: this.vitals.bodyScale * (1 - (1 - j.landSquashY) * k),
+        scaleX: base * (1 + (j.landSquashX - 1) * k),
+        scaleY: base * (1 - (1 - j.landSquashY) * k),
         duration: j.landSquashMs,
         yoyo: true,
         ease: 'Quad.Out',
-        onComplete: () => this.creature.setScale(this.vitals.bodyScale),
+        onComplete: () => this.creature.setScale(this.creature.baseScale),
       })
       this.blood.burst(this.creature.x, this.creature.y + 10, {
         count: Math.round(j.landDustCount * (0.6 + k * 0.6)),
@@ -403,15 +406,16 @@ export class CaveScene extends Phaser.Scene {
     }
     this.creature.onTakeoff = () => {
       const j = MOVEMENT.juice
+      const base = this.creature.baseScale
       this.tweens.killTweensOf(this.creature)
       this.tweens.add({
         targets: this.creature,
-        scaleX: this.vitals.bodyScale * j.takeoffStretchX,
-        scaleY: this.vitals.bodyScale * j.takeoffStretchY,
+        scaleX: base * j.takeoffStretchX,
+        scaleY: base * j.takeoffStretchY,
         duration: j.takeoffMs,
         yoyo: true,
         ease: 'Quad.Out',
-        onComplete: () => this.creature.setScale(this.vitals.bodyScale),
+        onComplete: () => this.creature.setScale(this.creature.baseScale),
       })
     }
 

@@ -39,12 +39,18 @@ export const ASSETS: AssetEntry[] = [
   { key: 'decor-moss', file: 'decor-moss.png' },
   { key: 'decor-crystal', file: 'decor-crystal.png' },
   { key: 'decor-bone', file: 'decor-bone.png' },
-  // Свет и атмосфера (шаг 5): дыра световой маски, параллакс-силуэты, мошь.
+  // Свет и атмосфера (шаг 5): дыра световой маски, мошь.
   { key: 'light-hole', file: 'light-hole.png' },
-  { key: 'silhouette-far', file: 'silhouette-far.png' },
+  // Шаг 16: фон-система глубины — 5 параллакс-слоёв (см. light.json parallax
+  // и секцию ФОН-СИСТЕМА ГЛУБИНЫ в scripts/generate-assets.mjs):
+  // бездна -> мегаволт (арки/череп левиафана) -> средняя стена с окнами ->
+  // ближние формации -> валуны-рамки. Старые bg-strata/silhouette-far
+  // удалены («фоны — просто полоски», жалоба игрока).
+  { key: 'bg-void', file: 'bg-void.png' },
+  { key: 'bg-megavault', file: 'bg-megavault.png' },
+  { key: 'bg-midwall', file: 'bg-midwall.png' },
+  { key: 'bg-formations', file: 'bg-formations.png' },
   { key: 'silhouette-near', file: 'silhouette-near.png' },
-  // Шаг 12: страта-задник — самая дальняя стена пещеры (напластования).
-  { key: 'bg-strata', file: 'bg-strata.png' },
   { key: 'mote', file: 'mote.png' },
   // Боёвка и поедание (шаг 6): кровь трёх слоёв, добыча, мясо, мутаген.
   { key: 'blood-drop', file: 'blood-drop.png' },

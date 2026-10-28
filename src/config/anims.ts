@@ -17,6 +17,10 @@ export interface SheetAnimConfig {
   order?: number[]
   /** Мс до скрытия спрайта после старта (одноразовые анимации). */
   hideAfterMs?: number
+  /** Шаг 16: множитель видимого размера этой анимации — нейро-листы
+   *  дали разный масштаб существа в разных позах (замер по bbox кадров:
+   *  планирование на 40% меньше idle). Creature домножает growthScale. */
+  scale: number
 }
 
 export interface AnimsConfig {
@@ -34,7 +38,7 @@ export interface AnimsConfig {
 
 const cfg = unwrapDoc<AnimsConfig>(data as unknown as Record<string, unknown>, 'anims.json')
 
-const SHEET_KEYS = ['frames', 'fps'] as const
+const SHEET_KEYS = ['frames', 'fps', 'scale'] as const
 
 // fail-fast при старте: каждое числовое поле обязано быть числом.
 for (const name of ['idle', 'run', 'glide', 'bite', 'eat', 'hurt', 'death'] as const) {

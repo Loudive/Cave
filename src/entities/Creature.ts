@@ -87,6 +87,12 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
   /** Визуальный рост (Vitals.bodyScale) — твины укуса считаются от него. */
   private growthScale = 1
 
+  /** Шаг 16: множитель размера текущей анимации (ANIMS.*.scale — нейро-листы
+   *  дали разный масштаб поз, «который планирует — чуть меньше остальных»).
+   *  Итог: setScale(growthScale × animScale). Меняется только при смене
+   *  анимации — не конфликтует со сквош-твинами укуса/чавканья. */
+  private animScale = 1
+
   /** Сцена подписывается: фиолетовый выброс спор на воздушном прыжке. */
   onAirJump: (() => void) | null = null
 
@@ -161,7 +167,21 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
   /** Применить визуальный рост (Vitals.level → bodyScale). */
   applyGrowth(scale: number): void {
     this.growthScale = scale
-    this.setScale(scale)
+    this.setScale(scale * this.animScale)
+  }
+
+  /** Шаг 16: базовый масштаб спрайта (рост × масштаб текущей анимации).
+   *  Сцена считает от него сквош/стретч-твины — иначе приземление
+   *  сбрасывало анимационный множитель и герой «уменьшался» обратно. */
+  get baseScale(): number {
+    return this.growthScale * this.animScale
+  }
+
+  /** Шаг 16: сменить масштаб анимации (только при смене позы — твины не трогаем). */
+  private setAnimScale(v: number): void {
+    if (v === this.animScale) return
+    this.animScale = v
+    this.setScale(this.growthScale * v)
   }
 
   /** Вызывать из scene.update(time, delta) каждый кадр. */
@@ -223,13 +243,17 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
     if (this.anims.currentAnim?.key === 'hero-bite' && this.anims.isPlaying) return
 
     if (now < this.hurtTexUntil) {
+      this.setAnimScale(ANIMS.hurt.scale)
       this.play('hero-hurt', true)
     } else if (this.isEating && this.stateName === 'ground') {
+      this.setAnimScale(ANIMS.eat.scale)
       this.play('hero-eat', true)
     } else if (this.stateName === 'glide') {
+      this.setAnimScale(ANIMS.glide.scale)
       this.play('hero-glide', true)
     } else if (this.stateName === 'wall-cling') {
       // На стене крылья сложены, лапы растопырены — кадр полёта без маха.
+      this.setAnimScale(ANIMS.glide.scale)
       this.anims.stop()
       this.setTexture('hero-glide')
       this.setFrame(ANIMS.airborneFrame)
@@ -240,12 +264,15 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
       || this.stateName === 'wall-lock'
     ) {
       // В воздухе крылья раскрыты (статичный кадр полёта без маха).
+      this.setAnimScale(ANIMS.glide.scale)
       this.anims.stop()
       this.setTexture('hero-glide')
       this.setFrame(ANIMS.airborneFrame)
     } else if (this.stateName === 'ground' && Math.abs(body.velocity.x) > 20) {
+      this.setAnimScale(ANIMS.run.scale)
       this.play('hero-run', true)
     } else {
+      this.setAnimScale(ANIMS.idle.scale)
       this.play('hero-idle', true)
     }
   }
@@ -259,6 +286,7 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
   playDeathVisual(): void {
     this.forceUncling()
     this.deathPlaying = true
+    this.setAnimScale(ANIMS.death.scale)
     this.anims.stop()
     this.setRotation(0)
     this.play('hero-death')
@@ -502,12 +530,14 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
   /** Замах: анимация укуса с первого кадра + присед-телеграф твином. */
   biteWindupVisual(): void {
     // Кадры 0–1 (18 к/с ≈ biteWindupMs) — замах; 2–3 — выпад.
+    this.setAnimScale(ANIMS.bite.scale)
     this.play('hero-bite')
+    const base = this.growthScale * this.animScale
     this.scene.tweens.killTweensOf(this)
     this.scene.tweens.add({
       targets: this,
-      scaleX: this.growthScale * 0.88,
-      scaleY: this.growthScale * 1.1,
+      scaleX: base * 0.88,
+      scaleY: base * 1.1,
       duration: BALANCE.player.biteWindupMs,
       ease: 'Quad.In',
     })
@@ -515,29 +545,31 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
 
   /** Выпад: разжатие с перерастяжением — бросок в жертву. */
   biteActiveVisual(): void {
+    const base = this.growthScale * this.animScale
     this.scene.tweens.killTweensOf(this)
     this.scene.tweens.add({
       targets: this,
-      scaleX: this.growthScale * 1.3,
-      scaleY: this.growthScale * 0.78,
+      scaleX: base * 1.3,
+      scaleY: base * 0.78,
       duration: 70,
       yoyo: true,
       ease: 'Quad.Out',
-      onComplete: () => this.setScale(this.growthScale),
+      onComplete: () => this.setScale(this.growthScale * this.animScale),
     })
   }
 
   /** Чавканье: довольное сжатие. */
   chewVisual(): void {
+    const base = this.growthScale * this.animScale
     this.scene.tweens.killTweensOf(this)
     this.scene.tweens.add({
       targets: this,
-      scaleX: this.growthScale * 1.12,
-      scaleY: this.growthScale * 0.9,
+      scaleX: base * 1.12,
+      scaleY: base * 0.9,
       duration: 90,
       yoyo: true,
       ease: 'Sine.InOut',
-      onComplete: () => this.setScale(this.growthScale),
+      onComplete: () => this.setScale(this.growthScale * this.animScale),
     })
   }
 
@@ -545,7 +577,7 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
   hurtVisual(ms: number): void {
     this.hurtTexUntil = this.scene.time.now + 220
     this.scene.tweens.killTweensOf(this)
-    this.setScale(this.growthScale)
+    this.setScale(this.growthScale * this.animScale)
     this.scene.tweens.add({
       targets: this,
       alpha: 0.35,
