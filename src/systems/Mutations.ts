@@ -35,6 +35,14 @@ export class Mutations {
   private gems: Gem[] = []
   private banner: Phaser.GameObjects.Container | null = null
 
+  // Шаг 11 (Гнездо): модификаторы древа навыков.
+  /** Прибавка к базовому шансу выпадения мутации (узлы «Генов»). */
+  chanceBonus = 0
+  /** Множитель веса проклятий в броске («Стабильный код» — ×0.5). */
+  curseWeightMult = 1
+  /** Элитные гарантированно роняют («Мутационный шторм»). */
+  eliteGuarantee = false
+
   /** Сцена применяет хуки эффекта (grip/doubleJump/thorns/...). */
   onApply: ((def: MutationDef) => void) | null = null
   onPickedUp: (() => void) | null = null
@@ -53,11 +61,13 @@ export class Mutations {
   slots = BALANCE.mutations.maxOwned
 
   /**
-   * Бросок на выпадение из туши. Шанс 25%; если повезло — кристалл
-   * вырастает из туши (пул без повторов; пусто — кристалл не вырастет).
+   * Бросок на выпадение из туши. Шанс 25% (+бонус Гнезда); если повезло —
+   * кристалл вырастает из туши (пул без повторов; пусто — кристалл не вырастет).
+   * opts.guaranteed — «Мутационный шторм»: элита роняет всегда.
    */
-  rollDrop(x: number, y: number): void {
-    if (Math.random() >= BALANCE.mutations.dropChance) return
+  rollDrop(x: number, y: number, opts?: { guaranteed?: boolean }): void {
+    const chance = BALANCE.mutations.dropChance + this.chanceBonus
+    if (!opts?.guaranteed && Math.random() >= chance) return
     // Потолок: подобранное + невыбранные кристаллы не превышают слоты
     // (шаг 8: слоты = 6 базовых + геном-гнездо).
     if (this.owned.length + this.gems.length >= this.slots) return
@@ -65,17 +75,22 @@ export class Mutations {
     const left = MUTATIONS.pool.filter((m) => m.rarity !== 'legendary' && !this.owned.some((o) => o.id === m.id))
     if (left.length === 0) return
 
-    const total = left.reduce((s, m) => s + m.weight, 0)
+    const total = left.reduce((s, m) => s + this.weightOf(m), 0)
     let roll = Math.random() * total
     let picked = left[0]
     for (const m of left) {
-      roll -= m.weight
+      roll -= this.weightOf(m)
       if (roll <= 0) {
         picked = m
         break
       }
     }
     this.spawnGem(x, y, picked)
+  }
+
+  /** Вес мутации в броске с учётом «Стабильного кода» (шаг 11). */
+  private weightOf(m: MutationDef): number {
+    return m.rarity === 'curse' ? m.weight * this.curseWeightMult : m.weight
   }
 
   /**

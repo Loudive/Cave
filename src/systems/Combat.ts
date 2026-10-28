@@ -24,6 +24,17 @@ export interface CombatMods {
   thorns: number
   /** «Паразитная слюна» (шаг 8): укушенные истекают кровью. */
   parasite: { dps: number; durationMs: number } | null
+  /** Шаг 11 (Гнездо): прибавка к радиусу/сектору укуса, множители выпада и замаха. */
+  biteRangeBonus: number
+  biteArcBonus: number
+  lungeMult: number
+  windupMult: number
+  /** «Пасть-капкан» (шаг 11): укус кислотный (рвёт броню) и станит сильнее. */
+  capJaw: boolean
+  /** «Охота из тени» (шаг 11): первый укус по мобу ×2. */
+  nightPounce: boolean
+  /** «Удар из темноты» (шаг 11): урон ×1.25 по мобам дальше этого расстояния. */
+  darkStrikeDist: number
 }
 
 export class Combat {
@@ -34,8 +45,22 @@ export class Combat {
   private touchBiteQueued = false
   private keyJustPressed = false
 
-  /** Модификаторы мутаций (ставит сцена при подборе). */
-  mods: CombatMods = { stunMs: 0, thorns: 0, parasite: null }
+  /** Модификаторы мутаций (ставит сцена при подборе) и Гнезда (шаг 11). */
+  mods: CombatMods = {
+    stunMs: 0,
+    thorns: 0,
+    parasite: null,
+    biteRangeBonus: 0,
+    biteArcBonus: 0,
+    lungeMult: 1,
+    windupMult: 1,
+    capJaw: false,
+    nightPounce: false,
+    darkStrikeDist: 0,
+  }
+
+  /** Шаг 11: мобы, которых уже кусали хоть раз (для «Охоты из тени»). */
+  private everBitten = new Set<Enemy>()
 
   constructor(
     private scene: Phaser.Scene,
@@ -99,7 +124,7 @@ export class Combat {
 
   private beginWindup(time: number): void {
     this.stateName = 'windup'
-    this.stateUntil = time + BALANCE.player.biteWindupMs
+    this.stateUntil = time + BALANCE.player.biteWindupMs * this.mods.windupMult
     this.hitSet.clear()
     this.creature.biteWindupVisual()
   }
@@ -112,7 +137,7 @@ export class Combat {
     // Рывок в сторону взгляда (в воздухе не гасим вертикаль).
     const body = this.creature.body as Phaser.Physics.Arcade.Body
     const facing = this.creature.facing
-    body.velocity.x = facing * p.biteLungeSpeed
+    body.velocity.x = facing * p.biteLungeSpeed * this.mods.lungeMult
 
     this.creature.biteActiveVisual()
     this.onBiteSwing?.()
@@ -130,15 +155,16 @@ export class Combat {
       if (enemy.dead || this.hitSet.has(enemy)) continue
       const dx = enemy.x - px
       const dy = enemy.y - py
-      if (Math.abs(dx) > p.biteRange || Math.abs(dy) > p.biteRange * 0.75) continue
+      const range = p.biteRange + this.mods.biteRangeBonus
+      if (Math.abs(dx) > range || Math.abs(dy) > range * 0.75) continue
       if (dx * facing < 0) continue
       const dist = Math.hypot(dx, dy)
-      if (dist > p.biteRange) continue
+      if (dist > range) continue
       const angle = Phaser.Math.RadToDeg(Math.atan2(dy, dx * facing))
-      if (Math.abs(angle) > p.biteArcDeg / 2) continue
+      if (Math.abs(angle) > (p.biteArcDeg + this.mods.biteArcBonus) / 2) continue
 
       this.hitSet.add(enemy)
-      this.applyHit(enemy)
+      this.applyHit(enemy, dist)
       // «Паразитная слюна» (шаг 8): укушенный истекает кровью.
       if (this.mods.parasite) {
         enemy.applyParasite(this.mods.parasite.dps, this.mods.parasite.durationMs)
@@ -146,12 +172,20 @@ export class Combat {
     }
   }
 
-  private applyHit(enemy: Enemy): void {
+  private applyHit(enemy: Enemy, dist = 0): void {
     const hit = BALANCE.hit
     const facing = this.creature.facing
-    // «Кислотные железы»: укус — кислотный, растворяет панцири (шаг 7).
-    const dmgType: import('../config/enemies').DamageType = this.vitals.biteAcid ? 'acid' : 'physical'
-    const applied = enemy.takeDamage(this.vitals.biteDamage, facing, this.mods.stunMs, dmgType, 'player')
+    // «Кислотные железы»/«Пасть-капкан» (шаг 11): укус растворяет панцири.
+    const dmgType: import('../config/enemies').DamageType =
+      this.vitals.biteAcid || this.mods.capJaw ? 'acid' : 'physical'
+    // Гнездо (шаг 11): «Охота из тени» — первый укус ×2; «Удар из темноты»
+    // — по мобам за пределами света ×1.25.
+    let mult = 1
+    if (this.mods.nightPounce && !this.everBitten.has(enemy)) mult *= 2
+    if (this.mods.darkStrikeDist > 0 && dist > this.mods.darkStrikeDist) mult *= 1.25
+    this.everBitten.add(enemy)
+    const base = Math.round(this.vitals.biteDamage * mult)
+    const applied = enemy.takeDamage(base, facing, this.mods.stunMs, dmgType, 'player')
     const killed = enemy.dead
     // Шаг 10: урон полностью срезан броней — металл-панцирь «кланк».
     if (applied <= 0 && !killed) this.onArmorClank?.()

@@ -151,6 +151,8 @@ export interface SpeciesConfig {
   /** Сытость туши (очков голода). */
   meat: number
   xp: number
+  /** Шаг 11: Эссенция Гнезда за убийство этого вида (мета-валюта). */
+  essence: number
   detectRadius: number
   knockbackResist: number
   twinAlpha: number

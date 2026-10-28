@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import { GENES, loadGeneSave } from '../config/genes'
+import { loadNestSave } from '../systems/NestSave'
 import { AudioSystem } from '../systems/Audio'
 
 /**
@@ -101,6 +102,31 @@ export class MenuScene extends Phaser.Scene {
       }).setOrigin(0.5).setAlpha(0.9)
     }
 
+    // Шаг 11: вход в «Гнездо» — хаб мета-прогрессии (древо/бестиарий/гены).
+    const nest = loadNestSave()
+    const nestY = cy + 128
+    const nestBtn = this.add.text(cx, nestY, `◈ ГНЕЗДО — древо · бестиарий · гены · статистика (${nest.essence}◈)`, {
+      fontFamily: 'monospace',
+      fontSize: '14px',
+      color: '#E8A34F',
+      backgroundColor: '#1c1c10',
+      padding: { x: 12, y: 6 },
+    }).setOrigin(0.5).setDepth(11).setInteractive({ useHandCursor: true })
+    this.tweens.add({
+      targets: nestBtn,
+      alpha: { from: 0.86, to: 1 },
+      duration: 1600,
+      yoyo: true,
+      repeat: -1,
+    })
+    nestBtn.on(Phaser.Input.Events.POINTER_DOWN, () => {
+      this.audio.ensureAmbient()
+      this.cameras.main.fadeOut(240, 4, 4, 8)
+      this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => this.scene.start('Nest'))
+    })
+    // Зона кнопки для глобального обработчика: клики по кнопке не уводят в пещеру.
+    const nestZone = nestBtn.getBounds()
+
     // Шаг 10: ползунки громкости над строкой подсказки.
     const sliderY = height - 118
     this.buildVolumeSliders(cx, sliderY)
@@ -119,13 +145,21 @@ export class MenuScene extends Phaser.Scene {
 
     // Один обработчик клика: эмбиент стартует первым жестом (автоплей-
     // политика), клик ВНЕ зоны ползунков уводит в пещеру, по ползункам —
-    // только настраивает громкость.
+    // только настраивает громкость. Клик по кнопке «Гнездо» обрабатывает
+    // сама кнопка — глобальный обработчик её пропускает.
     this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
       this.audio.ensureAmbient()
+      if (Phaser.Geom.Rectangle.Contains(nestZone, pointer.x, pointer.y)) return
       if (!this.inSliderZone(pointer, sliderY)) enterCave()
     })
-    this.input.keyboard?.once('keydown', () => {
+    this.input.keyboard?.once('keydown', (e: KeyboardEvent) => {
       this.audio.ensureAmbient()
+      // Шаг 11: N открывает Гнездо вместо пещеры.
+      if (e.code === 'KeyN') {
+        this.cameras.main.fadeOut(240, 4, 4, 8)
+        this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => this.scene.start('Nest'))
+        return
+      }
       enterCave()
     })
   }

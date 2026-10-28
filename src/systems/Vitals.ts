@@ -32,6 +32,10 @@ export class Vitals {
   hungerDrainMult = 1
   /** Шаг 8: «Чрево-пасть» — прибавка к аппетиту (цена сытости). */
   appetiteBonus = 0
+  /** Шаг 11 (Гнездо): множитель опыта с еды (узлы древа). */
+  xpMult = 1
+  /** Шаг 11 (Гнездо): множитель прямого лечения (heal). */
+  healMult = 1
   /** Постоянные гены (шаг 8): прибавки к характеристикам. */
   geneMaxHpBonus = 0
   geneBiteBonus = 0
@@ -128,7 +132,7 @@ export class Vitals {
   /** Сытость и рост от еды (мутация «Переваривание» усиливает). */
   eat(hungerPoints: number, xpPoints: number): void {
     this.hunger = Math.min(this.maxHunger, this.hunger + hungerPoints * this.digestMult * this.geneDigestMult)
-    this.addXp(xpPoints * this.digestMult * this.geneDigestMult)
+    this.addXp(xpPoints * this.digestMult * this.geneDigestMult * this.xpMult)
     this.onEat?.()
   }
 
@@ -185,7 +189,7 @@ export class Vitals {
 
   /** Прямое лечение (кусок мяса возвращает немного HP). */
   heal(amount: number): void {
-    if (!this.alive) return
-    this.hp = Math.min(this.maxHp, this.hp + amount)
+    if (!this.alive || amount <= 0) return
+    this.hp = Math.min(this.maxHp, this.hp + amount * this.healMult)
   }
 }

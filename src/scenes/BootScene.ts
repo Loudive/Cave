@@ -1,5 +1,5 @@
 import Phaser from 'phaser'
-import { ASSETS, assetUrl } from '../config/assets'
+import { ASSETS, assetUrl, HERO_FRAME } from '../config/assets'
 import { installGeneratedAudio } from '../systems/Audio'
 
 /**
@@ -27,12 +27,43 @@ export class BootScene extends Phaser.Scene {
       this.load.image(key, assetUrl(file))
     }
 
+    // Шаг 11: герой — мышь-планер. Листы (бег ×4, планирование ×2)
+    // грузятся спрайтлистами с кадрами 68×46.
+    this.load.spritesheet('hero-run', assetUrl('hero-run.png'), {
+      frameWidth: HERO_FRAME.w,
+      frameHeight: HERO_FRAME.h,
+    })
+    this.load.spritesheet('hero-glide', assetUrl('hero-glide.png'), {
+      frameWidth: HERO_FRAME.w,
+      frameHeight: HERO_FRAME.h,
+    })
+
     // Шаг 10: SFX + музыка синтезированы в браузере — ставим в кэш напрямую
     // (декодирование в фоне, без участия загрузчика).
     installGeneratedAudio(this)
   }
 
   create(): void {
+    // Шаг 11: анимации героя (глобальные — создаются один раз).
+    if (!this.anims.exists('hero-run')) {
+      this.anims.create({
+        key: 'hero-run',
+        frames: this.anims.generateFrameNumbers('hero-run', { start: 0, end: 3 }),
+        frameRate: 12,
+        repeat: -1,
+      })
+    }
+    if (!this.anims.exists('hero-glide')) {
+      this.anims.create({
+        key: 'hero-glide',
+        // Лист Nano Banana: 0 — крылья по середине, 1 — вверх,
+        // 2 — вниз, 3 — вперёд. Полный мах: вверх → вперёд → вниз → откат.
+        frames: this.anims.generateFrameNumbers('hero-glide', { frames: [1, 3, 2, 0] }),
+        frameRate: 9,
+        repeat: -1,
+      })
+    }
+
     this.events.emit('boot:progress', 1)
     this.cameras.main.fadeOut(220, 4, 4, 8)
     this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {

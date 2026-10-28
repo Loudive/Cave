@@ -16,51 +16,132 @@
     "fire": "Огненный след жжёт игрока и мобов (кроме immune); урон тикает по tickMs пока цель в луже; свет лужи — динамическая дыра в маске тьмы."
   },
   "spawn": {
-    "perNest": [2, 3],
-    "biomeFallback": ["slug", "bat"],
+    "perNest": [
+      2,
+      3
+    ],
+    "biomeFallback": [
+      "slug",
+      "bat"
+    ],
     "maxPerSpecies": 7,
     "byBiome": [
       [
-        { "id": "slug", "weight": 0.52 },
-        { "id": "bat", "weight": 0.3 },
-        { "id": "reaper", "weight": 0.18 }
+        {
+          "id": "slug",
+          "weight": 0.52
+        },
+        {
+          "id": "bat",
+          "weight": 0.3
+        },
+        {
+          "id": "reaper",
+          "weight": 0.18
+        }
       ],
       [
-        { "id": "slug", "weight": 0.28 },
-        { "id": "bat", "weight": 0.24 },
-        { "id": "reaper", "weight": 0.26 },
-        { "id": "bloodsucker", "weight": 0.22 }
+        {
+          "id": "slug",
+          "weight": 0.28
+        },
+        {
+          "id": "bat",
+          "weight": 0.24
+        },
+        {
+          "id": "reaper",
+          "weight": 0.26
+        },
+        {
+          "id": "bloodsucker",
+          "weight": 0.22
+        }
       ],
       [
-        { "id": "bat", "weight": 0.18 },
-        { "id": "reaper", "weight": 0.26 },
-        { "id": "bloodsucker", "weight": 0.24 },
-        { "id": "shell", "weight": 0.32 }
+        {
+          "id": "bat",
+          "weight": 0.18
+        },
+        {
+          "id": "reaper",
+          "weight": 0.26
+        },
+        {
+          "id": "bloodsucker",
+          "weight": 0.24
+        },
+        {
+          "id": "shell",
+          "weight": 0.32
+        }
       ],
       [
-        { "id": "bat", "weight": 0.14 },
-        { "id": "bloodsucker", "weight": 0.2 },
-        { "id": "shell", "weight": 0.3 },
-        { "id": "lava", "weight": 0.36 }
+        {
+          "id": "bat",
+          "weight": 0.14
+        },
+        {
+          "id": "bloodsucker",
+          "weight": 0.2
+        },
+        {
+          "id": "shell",
+          "weight": 0.3
+        },
+        {
+          "id": "lava",
+          "weight": 0.36
+        }
       ],
       [
-        { "id": "bat", "weight": 0.22 },
-        { "id": "bloodsucker", "weight": 0.2 },
-        { "id": "shell", "weight": 0.26 },
-        { "id": "lava", "weight": 0.32 }
+        {
+          "id": "bat",
+          "weight": 0.22
+        },
+        {
+          "id": "bloodsucker",
+          "weight": 0.2
+        },
+        {
+          "id": "shell",
+          "weight": 0.26
+        },
+        {
+          "id": "lava",
+          "weight": 0.32
+        }
       ],
       [
-        { "id": "bloodsucker", "weight": 0.24 },
-        { "id": "shell", "weight": 0.34 },
-        { "id": "lava", "weight": 0.42 }
+        {
+          "id": "bloodsucker",
+          "weight": 0.24
+        },
+        {
+          "id": "shell",
+          "weight": 0.34
+        },
+        {
+          "id": "lava",
+          "weight": 0.42
+        }
       ]
     ]
   },
   "eco": {
     "peaceRadius": 420,
-    "respawnMs": [16000, 26000],
-    "thinkEveryMs": [190, 320],
-    "squeakEveryMs": [9000, 17000],
+    "respawnMs": [
+      16000,
+      26000
+    ],
+    "thinkEveryMs": [
+      190,
+      320
+    ],
+    "squeakEveryMs": [
+      9000,
+      17000
+    ],
     "huntGiveUpMs": 5200,
     "leashRadius": 220,
     "maxMealsGrow": 5,
@@ -81,21 +162,40 @@
       "name": "Мышевидный слизень",
       "role": "prey",
       "hunts": [],
-      "fears": ["bat", "bloodsucker", "reaper", "shell", "lava"],
+      "fears": [
+        "bat",
+        "bloodsucker",
+        "reaper",
+        "shell",
+        "lava"
+      ],
       "hp": 18,
-      "size": [18, 12],
+      "size": [
+        18,
+        12
+      ],
       "texture": "mob-slug",
       "meat": 30,
       "xp": 24,
       "detectRadius": 150,
       "knockbackResist": 0.35,
       "twinAlpha": 0.5,
-      "armor": { "physical": 0, "acid": 0, "fire": 0.25 },
+      "armor": {
+        "physical": 0,
+        "acid": 0,
+        "fire": 0.25
+      },
       "noiseColor": "#9a9aa8",
       "patrol": {
         "speed": 55,
-        "pauseMs": [500, 1500],
-        "moveMs": [700, 1800],
+        "pauseMs": [
+          500,
+          1500
+        ],
+        "moveMs": [
+          700,
+          1800
+        ],
         "hopEveryMs": 900,
         "leashRadius": 150
       },
@@ -126,25 +226,42 @@
         "healPerChew": 3
       },
       "fly": null,
-      "_flavor": "Шкурка цвета пещерной пыли, два глазка-бусины. Округлый силуэт — гайд: «округлые безопаснее»."
+      "_flavor": "Шкурка цвета пещерной пыли, два глазка-бусины. Округлый силуэт — гайд: «округлые безопаснее».",
+      "essence": 2
     },
     "bat": {
       "name": "Пещерный нетопырь",
       "role": "opportunist",
-      "hunts": ["slug"],
-      "fears": ["bloodsucker", "lava"],
+      "hunts": [
+        "slug"
+      ],
+      "fears": [
+        "bloodsucker",
+        "lava"
+      ],
       "hp": 14,
-      "size": [20, 12],
+      "size": [
+        20,
+        12
+      ],
       "texture": "mob-bat",
       "meat": 45,
       "xp": 34,
       "detectRadius": 190,
       "knockbackResist": 0.1,
       "twinAlpha": 0.5,
-      "armor": { "physical": 0, "acid": 0, "fire": 0.4 },
+      "armor": {
+        "physical": 0,
+        "acid": 0,
+        "fire": 0.4
+      },
       "noiseColor": "#8a86a0",
       "patrol": null,
-      "pursue": { "speed": 175, "giveUpRange": 300, "playerHpBelowPct": 0.35 },
+      "pursue": {
+        "speed": 175,
+        "giveUpRange": 300,
+        "playerHpBelowPct": 0.35
+      },
       "flee": {
         "speed": 290,
         "climbBias": 0.55
@@ -179,31 +296,51 @@
         "sinePeriodMs": 1700,
         "wingFlapMs": 160
       },
-      "_flavor": "Угловатые крылья-лезвия, крошечные красные глазки — «угловатые опаснее». Ныряет на раненых."
+      "_flavor": "Угловатые крылья-лезвия, крошечные красные глазки — «угловатые опаснее». Ныряет на раненых.",
+      "essence": 3
     },
     "reaper": {
       "name": "Споровый жнец",
       "role": "territorial",
       "hunts": [],
-      "fears": ["lava"],
+      "fears": [
+        "lava"
+      ],
       "hp": 26,
-      "size": [20, 26],
+      "size": [
+        20,
+        26
+      ],
       "texture": "mob-reaper",
       "meat": 40,
       "xp": 30,
       "detectRadius": 210,
       "knockbackResist": 0.45,
       "twinAlpha": 0.55,
-      "armor": { "physical": 0.15, "acid": 0, "fire": 0.2 },
+      "armor": {
+        "physical": 0.15,
+        "acid": 0,
+        "fire": 0.2
+      },
       "noiseColor": "#b36bff",
       "patrol": {
         "speed": 34,
-        "pauseMs": [900, 2100],
-        "moveMs": [900, 2000],
+        "pauseMs": [
+          900,
+          2100
+        ],
+        "moveMs": [
+          900,
+          2000
+        ],
         "hopEveryMs": 1400,
         "leashRadius": 190
       },
-      "pursue": { "speed": 96, "giveUpRange": 330, "aggroRadius": 190 },
+      "pursue": {
+        "speed": 96,
+        "giveUpRange": 330,
+        "aggroRadius": 190
+      },
       "flee": {
         "speed": 150,
         "hopChance": 0.2,
@@ -231,31 +368,53 @@
         "healPerChew": 4
       },
       "fly": null,
-      "_flavor": "Худой гриб-жнец в спорной мантии: телом — округлый, бахрома-лезвия — угловатая. Сторож гнилых полян."
+      "_flavor": "Худой гриб-жнец в спорной мантии: телом — округлый, бахрома-лезвия — угловатая. Сторож гнилых полян.",
+      "essence": 5
     },
     "bloodsucker": {
       "name": "Кровосос",
       "role": "hunter",
-      "hunts": ["slug", "bat"],
-      "fears": ["lava"],
+      "hunts": [
+        "slug",
+        "bat"
+      ],
+      "fears": [
+        "lava"
+      ],
       "hp": 30,
-      "size": [22, 14],
+      "size": [
+        22,
+        14
+      ],
       "texture": "mob-bloodsucker",
       "meat": 35,
       "xp": 32,
       "detectRadius": 220,
       "knockbackResist": 0.25,
       "twinAlpha": 0.55,
-      "armor": { "physical": 0.1, "acid": 0, "fire": 0.25 },
+      "armor": {
+        "physical": 0.1,
+        "acid": 0,
+        "fire": 0.25
+      },
       "noiseColor": "#e23a4e",
       "patrol": {
         "speed": 46,
-        "pauseMs": [600, 1400],
-        "moveMs": [800, 1700],
+        "pauseMs": [
+          600,
+          1400
+        ],
+        "moveMs": [
+          800,
+          1700
+        ],
         "hopEveryMs": 1100,
         "leashRadius": 240
       },
-      "pursue": { "speed": 180, "giveUpRange": 340 },
+      "pursue": {
+        "speed": 180,
+        "giveUpRange": 340
+      },
       "flee": {
         "speed": 240,
         "hopChance": 0.35,
@@ -281,7 +440,8 @@
         "healPerChew": 4
       },
       "fly": null,
-      "_flavor": "Тощий, полупрозрачный, пасть на треть тела. Пьёт чужую кровь, чтобы жить — как игрок. Только без правил."
+      "_flavor": "Тощий, полупрозрачный, пасть на треть тела. Пьёт чужую кровь, чтобы жить — как игрок. Только без правил.",
+      "essence": 5
     },
     "shell": {
       "name": "Бронепанцирь",
@@ -289,23 +449,40 @@
       "hunts": [],
       "fears": [],
       "hp": 70,
-      "size": [26, 18],
+      "size": [
+        26,
+        18
+      ],
       "texture": "mob-shell",
       "meat": 55,
       "xp": 40,
       "detectRadius": 150,
       "knockbackResist": 0.85,
       "twinAlpha": 0.6,
-      "armor": { "physical": 0.85, "acid": 0, "fire": 0.4 },
+      "armor": {
+        "physical": 0.85,
+        "acid": 0,
+        "fire": 0.4
+      },
       "noiseColor": "#7d7a6a",
       "patrol": {
         "speed": 22,
-        "pauseMs": [1400, 3200],
-        "moveMs": [1200, 2400],
+        "pauseMs": [
+          1400,
+          3200
+        ],
+        "moveMs": [
+          1200,
+          2400
+        ],
         "hopEveryMs": 0,
         "leashRadius": 160
       },
-      "pursue": { "speed": 64, "giveUpRange": 260, "aggroRadius": 170 },
+      "pursue": {
+        "speed": 64,
+        "giveUpRange": 260,
+        "aggroRadius": 170
+      },
       "flee": null,
       "counter": null,
       "attack": {
@@ -327,31 +504,52 @@
       },
       "scavenge": null,
       "fly": null,
-      "_flavor": "Купол окаменевшей брони с ржавыми кромками. Зубы не берут — только кислота растворяет швы панциря."
+      "_flavor": "Купол окаменевшей брони с ржавыми кромками. Зубы не берут — только кислота растворяет швы панциря.",
+      "essence": 6
     },
     "lava": {
       "name": "Лавовый ползун",
       "role": "hunter",
-      "hunts": ["slug", "bat", "bloodsucker"],
+      "hunts": [
+        "slug",
+        "bat",
+        "bloodsucker"
+      ],
       "fears": [],
       "hp": 34,
-      "size": [24, 14],
+      "size": [
+        24,
+        14
+      ],
       "texture": "mob-lava",
       "meat": 45,
       "xp": 36,
       "detectRadius": 180,
       "knockbackResist": 0.6,
       "twinAlpha": 0.6,
-      "armor": { "physical": 0.2, "acid": 0.2, "fire": 1.0 },
+      "armor": {
+        "physical": 0.2,
+        "acid": 0.2,
+        "fire": 1.0
+      },
       "noiseColor": "#e2763a",
       "patrol": {
         "speed": 30,
-        "pauseMs": [900, 1900],
-        "moveMs": [1100, 2300],
+        "pauseMs": [
+          900,
+          1900
+        ],
+        "moveMs": [
+          1100,
+          2300
+        ],
         "hopEveryMs": 0,
         "leashRadius": 260
       },
-      "pursue": { "speed": 118, "giveUpRange": 320 },
+      "pursue": {
+        "speed": 118,
+        "giveUpRange": 320
+      },
       "flee": null,
       "counter": null,
       "attack": {
@@ -379,7 +577,9 @@
         "lightRadius": 36,
         "onlyWhenMoving": true
       },
-      "_flavor": "Трещины между пластинами светят янтарём. Оставляет за собой лужи огня — пещера за ним горит."
+      "_flavor": "Трещины между пластинами светят янтарём. Оставляет за собой лужи огня — пещера за ним горит.",
+      "essence": 6
     }
-  }
+  },
+  "_doc_essence_note": "Шаг 11: essence — Эссенция Гнезда за убийство этого вида (валюта мета-прогрессии). Баланс по опасности вида."
 }

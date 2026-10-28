@@ -18,7 +18,11 @@ export const ASSETS: AssetEntry[] = [
   { key: 'glow-red', file: 'glow-red.png' },
   { key: 'glow-acid', file: 'glow-acid.png' },
   // Спрайты.
-  { key: 'player', file: 'player.png' },
+  { key: 'player', file: 'hero-idle.png' },
+  // Шаг 11: герой — мышь-планер (нейро-спрайты, scripts/process-hero.mjs).
+  // Листы hero-run/hero-glide грузятся спрайтлистами в BootScene (кадры 68×46).
+  { key: 'hero-bite', file: 'hero-bite.png' },
+  { key: 'hero-hurt', file: 'hero-hurt.png' },
   { key: 'rock', file: 'rock.png' },
   { key: 'mushroom', file: 'mushroom.png' },
   { key: 'spore', file: 'spore.png' },
@@ -67,3 +71,6 @@ export const ASSETS: AssetEntry[] = [
 export function assetUrl(file: string): string {
   return file
 }
+
+/** Шаг 11: размер кадра листов героя (см. scripts/process-hero.mjs). */
+export const HERO_FRAME = { w: 68, h: 46 } as const

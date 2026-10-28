@@ -31,6 +31,13 @@ function moveToward(value: number, target: number, maxDelta: number): number {
 }
 
 /**
+ * Шаг 11: тело существа внутри кадра 68×46. w/h — прежний хитбокс 28×28;
+ * смещение прижато к лапам (низ кадра − 2px), чтобы мышь не «тонула» в полу.
+ * Числа вынесены — иначе магические литералы в физике (правило проекта).
+ */
+const CREATURE_BODY = { w: 28, h: 28, ox: 20, oy: 16 } as const
+
+/**
  * Creature — контроллер существа, «душа игры» (шаг 3).
  * Arcade Physics: бег с ускорением/трением, прыжок с coyote time и
  * jump buffering, переменная высота прыжка, wall slide, wall jump,
@@ -42,8 +49,22 @@ function moveToward(value: number, target: number, maxDelta: number): number {
 export class Creature extends Phaser.Physics.Arcade.Sprite {
   private keys: CreatureKeys
 
-  /** Модификаторы мутаций (шаг 6): сцепление и воздушные прыжки. */
-  public mods = { wallSlideMult: 1, airJumps: 0 }
+  /**
+   * Модификаторы мутаций (шаг 6) и Гнезда (шаг 11): сцепление, воздушные
+   * прыжки, скорость, прыжок, управление в воздухе, планирование.
+   */
+  public mods = {
+    wallSlideMult: 1,
+    airJumps: 0,
+    /** Гнездо (шаг 11): множители передвижения (все нейтральны по умолчанию). */
+    speedMult: 1,
+    jumpMult: 1,
+    airControlMult: 1,
+    /** Потолок скорости планирования: <1 — падает медленнее (перепонки). */
+    glideFallMult: 1,
+    /** Сохранение горизонтали в планировании: >1 — дольше скользит. */
+    glideDriftMult: 1,
+  }
   private airJumpsLeft = 0
 
   /** Споровая пыль (шаг 7): до этого времени бег замедлен (BALANCE.spore). */
@@ -72,6 +93,10 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
   // Переменная высота прыжка: срез применяется один раз за прыжок.
   private jumpCutDone = true
 
+  // Шаг 11: кадры укуса/урона держатся до этого времени (мс сцены).
+  private biteTexUntil = -Infinity
+  private hurtTexUntil = -Infinity
+
   // Направление активной стены: -1 левая, 1 правая, 0 нет.
   private wallDir = 0
 
@@ -93,6 +118,12 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
     this.setDrag(0, 0)
     this.setDepth(3)
     this.setName('player')
+    // Шаг 11: герой теперь летучая мышь (кадры 68×46). Физическое тело
+    // остаётся прежним 28×28 — выровнено по лапам, чтобы не менять геймплей:
+    // крылья/уши не считаются хитбоксом (щедро к игроку).
+    const body = this.body as Phaser.Physics.Arcade.Body
+    body.setSize(CREATURE_BODY.w, CREATURE_BODY.h, true)
+    body.setOffset(CREATURE_BODY.ox, CREATURE_BODY.oy)
   }
 
   /** Направление взгляда: куда был последний ввод по горизонтали. */
@@ -120,6 +151,38 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
     this.airLogic(body, dt)
 
     this.updateStateName(body)
+    this.updateVisuals(body)
+  }
+
+  /** Шаг 11: кадр летучей мыши по состоянию + разворот по взгляду. */
+  private updateVisuals(body: Phaser.Physics.Arcade.Body): void {
+    const now = this.scene.time.now
+    this.setFlipX(this.facingDir < 0)
+    // Банк в воздухе: падение клюёт носом, подъём задирает морду —
+    // дешёвая кодовая анимация поверх кадров (продаёт движение).
+    if (this.stateName === 'ground') this.setRotation(0)
+    else this.setRotation(Phaser.Math.Clamp(body.velocity.y / 1200, -0.12, 0.22))
+
+    // Приоритет кадров: укус > урон > состояние передвижения.
+    if (now < this.biteTexUntil) {
+      this.setTexture('hero-bite')
+    } else if (now < this.hurtTexUntil) {
+      this.setTexture('hero-hurt')
+    } else if (this.stateName === 'glide') {
+      this.setTexture('hero-glide')
+      if (!this.anims.isPlaying || this.anims.currentAnim?.key !== 'hero-glide') this.play('hero-glide')
+    } else if (this.stateName === 'jump' || this.stateName === 'fall') {
+      // В прыжке/падении крылья раскрыты (кадр полёта без маха).
+      this.setTexture('hero-glide')
+      this.anims.stop()
+      this.setFrame(3)
+    } else if (this.stateName === 'ground' && Math.abs(body.velocity.x) > 20) {
+      this.setTexture('hero-run')
+      if (!this.anims.isPlaying || this.anims.currentAnim?.key !== 'hero-run') this.play('hero-run')
+    } else {
+      this.setTexture('player')
+      this.anims.stop()
+    }
   }
 
   /** Текущее состояние — для debug-оверлея. */
@@ -172,7 +235,7 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
     // После wall jump ввод по горизонтали отключён, пока не выйдет lockTime.
     if (locked) return
 
-    const accel = inAir ? cfg.runAccel * cfg.airControl : cfg.runAccel
+    const accel = inAir ? cfg.runAccel * cfg.airControl * this.mods.airControlMult : cfg.runAccel
     const dir = (this.down(this.keys.right) ? 1 : 0) - (this.down(this.keys.left) ? 1 : 0)
     if (dir !== 0) this.facingDir = dir as 1 | -1
 
@@ -183,10 +246,13 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
     const rush = this.scene.time.now < this.speedBuffUntil ? this.speedBuffMult : 1
 
     if (dir !== 0) {
-      body.velocity.x = moveToward(body.velocity.x, dir * cfg.runMaxSpeed * slowK * rush, accel * slowK * dt)
+      body.velocity.x = moveToward(body.velocity.x, dir * cfg.runMaxSpeed * slowK * rush * this.mods.speedMult, accel * slowK * dt)
     } else {
       // Трение: к нулю за счёт runFriction (в воздухе — слабее, airControl).
-      const fr = (inAir ? cfg.runFriction * cfg.airControl : cfg.runFriction) * dt
+      // В планировании перипонки несут: трение слабже (дрейф, шаг 11).
+      const gliding = this.stateName === 'glide'
+      const drift = gliding ? 1 / this.mods.glideDriftMult : 1
+      const fr = (inAir ? cfg.runFriction * cfg.airControl : cfg.runFriction) * dt * drift
       body.velocity.x = moveToward(body.velocity.x, 0, fr)
     }
   }
@@ -206,7 +272,7 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
 
     // 1) Обычный прыжок (в том числе coyote — сход с края).
     if (canGround) {
-      body.velocity.y = jump.jumpVelocity
+      body.velocity.y = jump.jumpVelocity * this.mods.jumpMult
       this.lastOnFloorAt = -Infinity
       this.lastJumpPressedAt = -Infinity
       this.jumpCutDone = false
@@ -255,13 +321,18 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
       body.velocity.y = wall.wallSlideMaxFall * this.mods.wallSlideMult
     }
 
-    // Планирование: удержание вверх в падении — плавный тормоз до потолка.
+    // Планирование: удержание вверх в падении — плавный тормоз до потолка
+    // (перепонки Гнезда, шаг 11, снижают потолок и добавляют дрейф).
     if (
       !rising && !onWall
       && this.down(this.keys.glide)
-      && body.velocity.y > glide.glideFallSpeed
+      && body.velocity.y > glide.glideFallSpeed * this.mods.glideFallMult
     ) {
-      body.velocity.y = moveToward(body.velocity.y, glide.glideFallSpeed, glide.glideBrake * dt)
+      body.velocity.y = moveToward(
+        body.velocity.y,
+        glide.glideFallSpeed * this.mods.glideFallMult,
+        glide.glideBrake * dt,
+      )
     }
   }
 
@@ -269,6 +340,7 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
 
   /** Замах: существо приседает и сжимается — телеграф укуса. */
   biteWindupVisual(): void {
+    this.biteTexUntil = -Infinity
     this.scene.tweens.killTweensOf(this)
     this.scene.tweens.add({
       targets: this,
@@ -281,6 +353,7 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
 
   /** Выпад: разжатие с перерастяжением — бросок в жертву. */
   biteActiveVisual(): void {
+    this.biteTexUntil = this.scene.time.now + BALANCE.player.biteActiveMs + 60
     this.scene.tweens.killTweensOf(this)
     this.scene.tweens.add({
       targets: this,
@@ -307,8 +380,9 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
     })
   }
 
-  /** Урон: мигание на время неуязвимости. */
+  /** Урон: мигание на время неуязвимости + кадр боли. */
   hurtVisual(ms: number): void {
+    this.hurtTexUntil = this.scene.time.now + 220
     this.scene.tweens.killTweensOf(this)
     this.setScale(this.growthScale)
     this.scene.tweens.add({
@@ -336,7 +410,7 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
     } else if (
       this.down(this.keys.glide)
       && !body.blocked.down
-      && body.velocity.y >= MOVEMENT.glide.glideFallSpeed
+      && body.velocity.y >= MOVEMENT.glide.glideFallSpeed * this.mods.glideFallMult
     ) {
       this.stateName = 'glide'
     } else if (body.velocity.y < 0) {

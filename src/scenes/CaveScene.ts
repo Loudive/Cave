@@ -12,6 +12,9 @@ import { Ecosystem, type NestRecord } from '../systems/Ecosystem'
 import { Vfx } from '../systems/Vfx'
 import { Companion } from '../entities/Companion'
 import { GENES, loadGeneSave, saveGeneSave, grantGene, type GeneSave, type GeneDef } from '../config/genes'
+import { NEST } from '../config/nest'
+import { applyPerks, emptyRunPerks, type RunPerks } from '../systems/NestPerks'
+import { loadNestSave, updateNestSave, recordBestiary, collectGenome, type NestSave } from '../systems/NestSave'
 import { DebugOverlay } from '../systems/DebugOverlay'
 import { MiniMap } from '../systems/MiniMap'
 import { DarknessMask } from '../systems/DarknessMask'
@@ -94,6 +97,16 @@ export class CaveScene extends Phaser.Scene {
   // Шаг 8: геномы — постоянные гены, цветки, лунки, уникальные, спутник.
   private geneSave!: GeneSave
   private genesGained: string[] = []
+  // ── Шаг 11: Гнездо — перки древа и Эссенция этого забега ──
+  private nestProfile!: NestSave
+  private perks: RunPerks = emptyRunPerks()
+  /** Эссенция, заработанная в текущем забеге (сверху — бонус глубины в финале). */
+  private runEssence = 0
+  private dangerSenseNextAt = 0
+  private dreadNextAt = 0
+  private crystalHealNextAt = 0
+  private essenceHud!: Phaser.GameObjects.Text
+  private lastEssenceHud = ''
   private genePickups: { img: Phaser.GameObjects.Image; twin: Phaser.GameObjects.Image; geneId: string }[] = []
   private flowers: { img: Phaser.GameObjects.Image; glow: Phaser.GameObjects.Image; x: number; y: number; used: boolean }[] = []
   private genePools: { x: number; y: number; used: boolean }[] = []
@@ -121,6 +134,11 @@ export class CaveScene extends Phaser.Scene {
     this.exiting = false
     this.dying = false
     this.enemies = []
+    this.runEssence = 0
+    this.dangerSenseNextAt = 0
+    this.dreadNextAt = 0
+    this.crystalHealNextAt = 0
+    this.lastEssenceHud = ''
     this.maxMeters = 0
     // Приоритет: data из restart → URL → случайный seed.
     const url = new URL(window.location.href)
@@ -231,12 +249,18 @@ export class CaveScene extends Phaser.Scene {
         this.creature.y - 4,
         0.4,
       )
+      // Шаг 11: узел «Сытость лечит».
+      if (this.perks.healOnEat > 0) this.vitals.heal(this.perks.healOnEat)
     }
-    this.eating.onCarcassFinished = (x, y) => {
-      // Туша доедена: тёплый всплеск сытости (гайд: «вспышка света при поедании»).
+    this.eating.onCarcassFinished = (x, y, speciesId) => {
+      // Туша доедена: тёплый всплеск сытости (гайд: «вспышка света при поедании»). 
       this.audio.play('gulp')
       this.vfx.eatFlash(x, y, 0.9)
       this.cameras.main.flash(140, 120, 62, 46)
+      // Шаг 11: поедание кормит Гнездо — Эссенция + бестиарий «съедено».
+      const gain = Math.max(1, Math.round(NEST.essencePerEaten * this.perks.essenceEatMult))
+      this.addEssence(gain, x, y)
+      recordBestiary(speciesId, true)
     }
 
     this.mutations = new Mutations(this, this.vitals)
@@ -250,7 +274,16 @@ export class CaveScene extends Phaser.Scene {
 
     // Шаг 7: споры жнеца, огненный след ползуна, режиссёр экосистемы.
     this.spores = new Spores(this, this.cave, this.mask, this.blood, {
-      onHitPlayer: (damage) => this.combat.hurtPlayerSpore(damage),
+      onHitPlayer: (damage) => {
+        // Шаг 11: «Грибной доктор» — споры лечат; «Споровый иммунитет» — без замедления.
+        if (this.perks.sporeHeal) {
+          this.vitals.heal(2)
+          this.blood.number(this.creature.x, this.creature.y - 22, '+2', '#B36BFF')
+          return
+        }
+        const applied = this.combat.hurtPlayerSpore(damage)
+        if (applied > 0 && this.perks.sporeImmune) this.creature.slowUntil = 0
+      },
       onHitMob: (victim, applied) => {
         this.blood.burst(victim.x, victim.y, {
           count: 8, dirDeg: 90, spreadDeg: 360, texture: 'spore', sticky: false,
@@ -259,7 +292,8 @@ export class CaveScene extends Phaser.Scene {
       },
     })
     this.fire = new FireTrail(this, this.cave, this.mask, {
-      onBurnPlayer: (amount) => this.combat.hurtPlayerFire(amount),
+      // Шаг 11: «Тёплая шерсть»/«Пламя-друг» — множитель урона огня.
+      onBurnPlayer: (amount) => this.combat.hurtPlayerFire(Math.round(amount * this.perks.fireResist)),
     })
     this.eco = new Ecosystem(this, {
       spawnAtNest: (nest) => this.spawnEnemyAtNest(nest),
@@ -268,6 +302,17 @@ export class CaveScene extends Phaser.Scene {
     // Шаг 9: juice-слой (вспышки, хроматика, слоу-мо, Glow, искры).
     this.vfx = new Vfx(this, this.blood, this.hitStop)
     QUALITY.onChange(() => this.vfx.refreshForQuality())
+
+    // Шаг 11: перки Гнезда применяются после генов — древо усиливает героя.
+    this.nestProfile = loadNestSave()
+    this.perks = applyPerks(this.nestProfile.nodes, {
+      vitals: this.vitals,
+      creature: this.creature,
+      combat: this.combat,
+      mutations: this.mutations,
+      sceneMods: this.sceneMods,
+    })
+    this.mutations.slots = this.vitals.mutationSlots
 
     this.combat.onHeavyHit = (damage) => this.vfx.chromaticHit(damage >= 20 ? 1.5 : 1)
 
@@ -351,6 +396,30 @@ export class CaveScene extends Phaser.Scene {
       color: '#B9B7C4',
       align: 'right',
       lineSpacing: 4,
+    })
+      .setOrigin(1, 0)
+      .setScrollFactor(0)
+      .setDepth(22)
+
+    // Шаг 11: счётчик Эссенции этого забега (обновляется только сменой строки).
+    this.essenceHud = this.add.text(width - 10, 52, '', {
+      fontFamily: 'monospace',
+      fontSize: '13px',
+      fontStyle: 'bold',
+      color: '#E8A34F',
+      align: 'right',
+    })
+      .setOrigin(1, 0)
+      .setScrollFactor(0)
+      .setDepth(22)
+
+    // Шаг 11: счётчик Эссенции этого забега (обновляется только сменой строки).
+    this.essenceHud = this.add.text(width - 10, 52, '', {
+      fontFamily: 'monospace',
+      fontSize: '13px',
+      fontStyle: 'bold',
+      color: '#E8A34F',
+      align: 'right',
     })
       .setOrigin(1, 0)
       .setScrollFactor(0)
@@ -513,6 +582,14 @@ export class CaveScene extends Phaser.Scene {
         this.lastHudLine = hudLine
         this.hudText.setText(hudLine)
       }
+      // Шаг 11: Эссенция забега в HUD (обновляется только сменой строки).
+      const essenceLine = `◈ +${this.runEssence}`
+      if (essenceLine !== this.lastEssenceHud) {
+        this.lastEssenceHud = essenceLine
+        this.essenceHud.setText(essenceLine)
+      }
+      // Шаг 11: тиковые перки (нюх/дрожь/кристаллы).
+      this.updateNestPerks(time)
 
       // Сердцебиение света: низкий голод/HP — свет пульсирует чаще и глубже.
       const hungerRatio = this.vitals.hungerRatio
@@ -560,6 +637,56 @@ export class CaveScene extends Phaser.Scene {
     }
   }
 
+  /** Шаг 11: Эссенция забега — накопление, всплывающее число, HUD. */
+  private addEssence(amount: number, x: number, y: number): void {
+    this.runEssence += amount
+    this.blood.number(x, y - 26, `+${amount}◈`, '#E8A34F')
+  }
+
+  /** Шаг 11: поведенческие перки Гнезда (тиковая логика — из update). */
+  private updateNestPerks(time: number): void {
+    // «Кровавый нюх»: охотящиеся на игрока подсвечиваются сквозь тьму.
+    if (this.perks.dangerSense && time >= this.dangerSenseNextAt) {
+      this.dangerSenseNextAt = time + 1600
+      for (const e of this.enemies) {
+        if (e.dead) continue
+        if (e.aiState === 'pursue' || e.aiState === 'windup' || e.aiState === 'attack') {
+          this.eco.ring(e.x, e.y, '#E23A4E', 0.5)
+          e.updateSilhouette(e.x, e.y, 99999)
+        }
+      }
+    }
+    // «Дрожь тьмы»: мобы слишком близко к хищнику паникуют.
+    if (this.perks.dreadAura && time >= this.dreadNextAt) {
+      this.dreadNextAt = time + 900
+      for (const e of this.enemies) {
+        if (e.dead) continue
+        const d = Phaser.Math.Distance.Between(e.x, e.y, this.creature.x, this.creature.y)
+        if (d < 110 && Math.random() < 0.22) e.scare(time)
+      }
+    }
+    // «Кристальный покров»: кристаллы пещеры (decor=2) лечат при касании.
+    if (this.perks.crystalHeal && time >= this.crystalHealNextAt && this.vitals.alive) {
+      this.crystalHealNextAt = time + 700
+      const tile = this.cave.tile
+      const tx = Math.floor(this.creature.x / tile)
+      const ty = Math.floor(this.creature.y / tile)
+      let onCrystal = false
+      for (let dy = -1; dy <= 1 && !onCrystal; dy++) {
+        for (let dx = -1; dx <= 1 && !onCrystal; dx++) {
+          const cx2 = tx + dx
+          const cy2 = ty + dy
+          if (cx2 < 0 || cy2 < 0 || cx2 >= this.cave.cols || cy2 >= this.cave.rows) continue
+          if (this.cave.decor[cy2 * this.cave.cols + cx2] === 2) onCrystal = true
+        }
+      }
+      if (onCrystal && this.vitals.hp < this.vitals.maxHp) {
+        this.vitals.heal(1)
+        if (Math.random() < 0.25) this.blood.number(this.creature.x, this.creature.y - 20, '+1', '#7DB8FF')
+      }
+    }
+  }
+
   // ── Шаг 6/7: бой, еда и экосистема ────────────────────────────────────────
 
   /**
@@ -570,6 +697,9 @@ export class CaveScene extends Phaser.Scene {
   private handleEnemyDeath(enemy: Enemy, killer: KillerKind): void {
     const idx = this.enemies.indexOf(enemy)
     if (idx >= 0) this.enemies.splice(idx, 1)
+
+    // Шаг 11: бестиарий — «убито» засчитывается за любую смерть от игрока.
+    if (killer === 'player') recordBestiary(enemy.speciesId, false)
 
     // Шаг 10: смерть моба (гайд: «смерть моба» в списке SFX); уникальный —
     // уходит под собственный рык.
@@ -599,15 +729,30 @@ export class CaveScene extends Phaser.Scene {
     this.eco.onMobDeath(enemy.nestIndex)
     if (killer === 'player') {
       this.vitals.eatenCount++
+      // Шаг 11: Эссенция Гнезда за убийство (элита ценнее, узлы усиливают).
+      const sp = ENEMIES.species[enemy.speciesId]
+      const essenceGain = Math.round(
+        sp.essence * (enemy.elite ? NEST.eliteEssenceMult : 1) * this.perks.essenceKillMult,
+      ) + this.perks.essenceOnKill
+      this.addEssence(Math.max(1, essenceGain), enemy.x, enemy.y)
+      // Шаг 11: «Жир регенерации» — убийство лечит.
+      if (this.perks.hpOnKill > 0) this.vitals.heal(this.perks.hpOnKill)
       // Уникальный моб несёт ПОСТОЯННЫЙ ген (шаг 8) и заслуживает slow-mo (шаг 9).
       if (enemy.elite) {
         this.vfx.uniqueKillSlowMo()
         this.vfx.sparks(enemy.x, enemy.y, 18, true)
         this.blood.explode(enemy.x, enemy.y, 24)
         this.dropGenePickup(enemy.x, enemy.y)
-        this.mutations.rollDrop(enemy.x, enemy.y)
+        this.mutations.rollDrop(enemy.x, enemy.y, { guaranteed: this.perks.eliteGuarantee })
       } else {
         this.mutations.rollDrop(enemy.x, enemy.y)
+      }
+      // Шаг 11: «Паника стаи» — соседи жертвы разбегаются.
+      if (this.perks.panicKill) {
+        for (const other of this.enemies) {
+          if (other.dead || other === enemy) continue
+          if (Phaser.Math.Distance.Between(other.x, other.y, enemy.x, enemy.y) < 150) other.scare(this.time.now)
+        }
       }
     }
   }
@@ -667,7 +812,7 @@ export class CaveScene extends Phaser.Scene {
     void this.sceneMods
   }
 
-  /** Смерть существа: взрыв, затемнение, экран итога → меню (шаг 8). */
+  /** Смерть существа: взрыв, затемнение, экран итога → Гнездо (шаг 11). */
   private handleDeath(): void {
     if (this.dying) return
     this.dying = true
@@ -677,6 +822,8 @@ export class CaveScene extends Phaser.Scene {
     this.geneSave.stats.bestDepthM = Math.max(this.geneSave.stats.bestDepthM, this.maxMeters)
     this.geneSave.stats.bestEaten = Math.max(this.geneSave.stats.bestEaten, this.vitals.eatenCount)
     saveGeneSave(this.geneSave)
+    // Шаг 11: забег завершён смертью — Эссенция падает в профиль Гнезда.
+    this.bankRunToNest('death')
     const d = BALANCE.death
     this.hitStop.freeze(d.hitstopMs)
     this.blood.explode(
@@ -694,7 +841,42 @@ export class CaveScene extends Phaser.Scene {
     this.time.delayedCall(d.fadeMs * 0.6, () => this.showRunSummary(kb))
   }
 
-  /** Экран «Итог забега» (полный экран статистики — шаг 8). */
+  /**
+   * Шаг 11: сдать забег в Гнездо — Эссенция (трофеи + бонус глубины),
+   * накопительная статистика, рекорды. 'death' — финал забега, 'descend'
+   * — спуск глубже (жизнь та же, счётчики забегов не трогаем).
+   */
+  private bankRunToNest(kind: 'death' | 'descend'): void {
+    const depthBonus = Math.floor(this.maxMeters / NEST.depthMetersPerEssence * this.perks.depthBonusMult)
+    const total = this.runEssence + depthBonus
+    this.nestProfile = updateNestSave((s) => {
+      s.essence += total
+      s.stats.totalEssence += total
+      if (kind === 'death') s.stats.runs++
+      if (kind === 'death') s.stats.deaths++
+      s.stats.bestDepthM = Math.max(s.stats.bestDepthM, this.maxMeters)
+      s.stats.bestEaten = Math.max(s.stats.bestEaten, this.vitals.eatenCount)
+      s.stats.totalEaten += this.vitals.eatenCount
+      // Пещеры: уникальные сиды (шаг 11 — «пещеры посещено»). Кап — память.
+      if (!s.seenSeeds.includes(this.seedBase)) {
+        s.seenSeeds.push(this.seedBase)
+        if (s.seenSeeds.length > 300) s.seenSeeds.splice(0, s.seenSeeds.length - 300)
+      }
+      s.stats.cavesVisited = s.seenSeeds.length
+      // Лучший забег — по Эссенции, тай-брейк по глубине.
+      const better = total > s.stats.bestRun.essence
+        || (total === s.stats.bestRun.essence && this.maxMeters > s.stats.bestRun.depthM)
+      if (better) {
+        s.stats.bestRun = { essence: total, depthM: this.maxMeters, eaten: this.vitals.eatenCount }
+      }
+    })
+    this.lastDepthBonus = depthBonus
+    this.lastRunEssence = total
+  }
+
+  /** Бонус глубины и итог забега (заполняются в bankRunToNest, читает итоговый экран). */
+  private lastDepthBonus = 0
+  private lastRunEssence = 0
   private showRunSummary(kb: Phaser.Input.Keyboard.KeyboardPlugin): void {
     const { width, height } = this.scale
     const cam = this.cameras.main
@@ -723,6 +905,8 @@ export class CaveScene extends Phaser.Scene {
       `мутаций внедрено — ${this.vitals.mutationsCount}`,
       `максимальная глубина — ${this.maxMeters} м`,
       `на чём погиб: ${this.vitals.lastDamageCause}`,
+      '',
+      `ЭССЕНЦИЯ В ГНЕЗДО: +${this.lastRunEssence}◈ (из них за глубину +${this.lastDepthBonus}◈)`,
     ]
     if (genesLine) lines.push(`постоянные гены: ${genesLine} (переживут смерть)`)
     const stats = this.add.text(width / 2, height / 2 - 10, lines.join('\n'), {
@@ -747,12 +931,12 @@ export class CaveScene extends Phaser.Scene {
       repeat: -1,
     })
 
-    // Смерть возвращает в меню (гайд шаг 8): постоянная часть сохранена.
+    // Смерть возвращает в Гнездо (шаг 11): трофеи сданы, древо ждёт.
     const restart = (): void => {
       cam.fadeOut(320, 4, 4, 8)
       cam.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
         kb.removeAllListeners()
-        this.scene.start('Menu')
+        this.scene.start('Nest')
       })
     }
     this.input.once(Phaser.Input.Events.POINTER_DOWN, restart)
@@ -901,6 +1085,8 @@ export class CaveScene extends Phaser.Scene {
   private descend(): void {
     if (this.exiting || this.dying) return
     this.exiting = true
+    // Шаг 11: спуск глубже — Эссенция и рекорды уровня падают в Гнездо.
+    this.bankRunToNest('descend')
     this.cameras.main.fadeOut(420, 4, 4, 8)
     this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
       this.scene.restart({ seed: this.seedBase, depth: this.depth + 1 })
@@ -1283,6 +1469,8 @@ export class CaveScene extends Phaser.Scene {
   /** Трогаешь геном-кристалл/лунку — ген записывается в localStorage. */
   private grantGeneAt(def: GeneDef, x: number, y: number): void {
     if (!grantGene(def.id, this.geneSave)) return
+    // Шаг 11: геном попадает и в коллекцию Гнезда (счётчик копий).
+    collectGenome(def.id)
     // Шаг 10: золотой геном — свой звук (гайд: «легендарный геном — событие»).
     this.audio.play('gene')
     this.genesGained.push(def.id)
