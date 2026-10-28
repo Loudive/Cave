@@ -53,8 +53,10 @@ function edgeMask(cave: CaveData, x: number, y: number): number {
 /**
  * BFS-дистанция каждой твёрдой клетки до ближайшего воздуха (1 = край).
  * Мульти-источник из всех воздушных клеток — один проход O(N).
+ * Шаг 15: экспортируется — ту же карту глубины использует CavePainter
+ * (запечённый органический рендер) для затемнения толщи.
  */
-function depthMap(cave: CaveData): Uint8Array {
+export function depthMap(cave: CaveData): Uint8Array {
   const W = cave.cols
   const H = cave.rows
   const d = new Uint8Array(W * H)
@@ -146,15 +148,18 @@ function makeLayer(
 export function buildCaveTilemap(scene: Phaser.Scene, cave: CaveData): CaveLayers {
   const depth = depthMap(cave)
 
-  // ── Край стены: автотайл по битмаске воздушных соседей ────────────────
+  // ── Шаг 15: тайлмап теперь ТОЛЬКО ФИЗИКА (невидимый). Визуал стен —
+  // запечённый органический рендер CavePainter (marching squares):
+  // тайлова сетка 16×16 квантовала силуэт в «поганые квадраты» (жалоба
+  // игрока) — какой бы органичной ни была генерация. Коллизии не меняются.
   const edgeLayer = makeAtlasLayer(
     scene,
     dataWhere(cave, (x, y, i) =>
       cave.ground[i] === 1 ? EDGE_BASE + edgeMask(cave, x, y) : -1),
     true, 1,
   )
+  edgeLayer.setVisible(false)
 
-  // ── Ядро стены: страты глубины (2 → near … 5+ → void) ────────────────
   const stoneLayer = makeAtlasLayer(
     scene,
     dataWhere(cave, (_x, _y, i) => {
@@ -164,6 +169,7 @@ export function buildCaveTilemap(scene: Phaser.Scene, cave: CaveData): CaveLayer
     }),
     true, 0,
   )
+  stoneLayer.setVisible(false)
 
   // ── Декор (мох/кристалл/кость) — прозрачный фон, без коллизий ────────
   const moss = makeLayer(scene, 'decor-moss',

@@ -24,6 +24,8 @@ export interface LightConfig {
     radius: number
     breatheAmp: number
     breathePeriodMs: number
+    /** Шаг 15: доля визуального радиуса для ГЕЙМПЛЕЙНОГО обнаружения мобами. */
+    detectionShare: number
   }
   /** Шаг 13 (Hidden Deep): вытяжение света существа вперёд по взгляду. */
   gaze: {

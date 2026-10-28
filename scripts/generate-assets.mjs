@@ -543,17 +543,20 @@ function makeSilhouette(name, seed, opts) {
   c.save(name)
 }
 
-/** Дальний слой: чуть светлее полотна, мелкий и частый — «стена пещеры в дымке». */
+/** Дальний слой: чуть светлее полотна, мелкий и частый — «стена пещеры в дымке».
+ *  Шаг 15: ink ярче (0x14-0x18) — слой ЧИТАЕТСЯ сквозь тьму 0.70 как
+ *  силуэты дальних сводов, а не растворяется в черноте (жалоба «нет фонов»). */
 makeSilhouette('silhouette-far.png', 51, {
-  bg: [0x0a, 0x0a, 0x11], ink: [0x08, 0x08, 0x0d], inkA: 255,
-  stalactites: 14, stalagmites: 10, pillars: 9, minW: 36, maxW: 120, maxLen: 0.34,
-  roots: 16,
+  bg: [0x0f, 0x11, 0x1c], ink: [0x14, 0x16, 0x24], inkA: 235,
+  stalactites: 16, stalagmites: 12, pillars: 10, minW: 40, maxW: 140, maxLen: 0.4,
+  roots: 18, rim: [0x1e, 0x24, 0x33], rimA: 150,
 })
-/** Ближний слой: прозрачный фон, крупные тёмные формы поверх дальнего. */
+/** Ближний слой: прозрачный фон, крупные тёмные формы поверх дальнего.
+ *  Шаг 15: rim-кромка ярче — граница силуэта читается и в полумраке. */
 makeSilhouette('silhouette-near.png', 52, {
-  bg: null, ink: [0x06, 0x06, 0x09], inkA: 235,
-  stalactites: 8, stalagmites: 6, pillars: 5, minW: 60, maxW: 190, maxLen: 0.42,
-  roots: 9, rim: [0x1c, 0x22, 0x2c], rimA: 140,
+  bg: null, ink: [0x0a, 0x0c, 0x14], inkA: 245,
+  stalactites: 9, stalagmites: 7, pillars: 6, minW: 70, maxW: 210, maxLen: 0.48,
+  roots: 10, rim: [0x24, 0x2a, 0x3a], rimA: 165,
 })
 
 // ── Шаг 12: лучший визуал пещеры ───────────────────────────────────────
@@ -572,14 +575,15 @@ makeSilhouette('silhouette-near.png', 52, {
   const W = 768
   const H = 1280
   const c = new Canvas(W, H)
-  c.fill([0x16, 0x18, 0x26])
+  c.fill([0x1a, 0x1c, 0x2a])
   const rnd = mulberry32(71)
   // Напластования: 8 полос светлее тайлов игрового плана (#15151f…):
   // дальняя стена читается сквозь «воздух» пещеры.
+  // Шаг 15: полосы ярче (читаются сквозь тьму 0.75 — глубина видна всегда).
   const strataColors = [
-    [0x1d, 0x1f, 0x30], [0x1a, 0x1c, 0x2b], [0x1f, 0x20, 0x32],
-    [0x18, 0x1b, 0x29], [0x21, 0x20, 0x33], [0x19, 0x1d, 0x2d],
-    [0x1e, 0x1e, 0x2f], [0x1a, 0x1c, 0x2c],
+    [0x23, 0x25, 0x38], [0x1f, 0x22, 0x33], [0x26, 0x27, 0x3a],
+    [0x1d, 0x20, 0x30], [0x28, 0x28, 0x3c], [0x1e, 0x23, 0x34],
+    [0x24, 0x25, 0x37], [0x1f, 0x22, 0x33],
   ]
   let y = 0
   for (let b = 0; b < strataColors.length; b++) {
@@ -609,6 +613,41 @@ makeSilhouette('silhouette-near.png', 52, {
     // Бесшовность: дубль на ±W.
     c.radial(hx - W, hy, hr, hazeColors[h], [[0, 0.1], [0.45, 0.05], [1, 0]])
     c.radial(hx + W, hy, hr, hazeColors[h], [[0, 0.1], [0.45, 0.05], [1, 0]])
+  }
+  // Шаг 15: крупные тёмные силуэты дальних сводов — сталактиты сверху
+  // и сталагмиты снизу (дальняя стена обретает ФОРМУ, а не только полосы:
+  // референсы Hollow Knight — глубина читается силуэтами в дымке).
+  for (let i = 0; i < 10; i++) {
+    const sx = Math.floor(rnd() * W)
+    const sw = 60 + Math.floor(rnd() * 130)
+    const sl = 90 + Math.floor(rnd() * 220)
+    for (const dx of [-W, 0, W]) {
+      // Тело сталактита: сужающийся зигзаг-конус.
+      let x = sx + dx + Math.floor(sw / 2)
+      for (let yy = 0; yy < sl; yy++) {
+        const w = Math.max(1, Math.floor(sw * (1 - yy / sl) * 0.5))
+        x += rnd() > 0.72 ? (rnd() > 0.5 ? 1 : -1) : 0
+        c.rect(x - w, yy, x + w, yy + 1, [0x10, 0x12, 0x1e], 210)
+      }
+      // Светлая кромка левого края — ловит «дальний свет».
+      for (let yy = 0; yy < sl; yy += 2) {
+        const w = Math.max(1, Math.floor(sw * (1 - yy / sl) * 0.5))
+        c.px(x - w - 1, yy, [0x1e, 0x22, 0x33], 90)
+      }
+    }
+  }
+  for (let i = 0; i < 7; i++) {
+    const sx = Math.floor(rnd() * W)
+    const sw = 90 + Math.floor(rnd() * 160)
+    const sl = 70 + Math.floor(rnd() * 180)
+    for (const dx of [-W, 0, W]) {
+      let x = sx + dx
+      for (let yy = 0; yy < sl; yy++) {
+        const w = Math.max(1, Math.floor(sw * 0.5 * (yy / sl) + 2))
+        x += rnd() > 0.75 ? (rnd() > 0.5 ? 1 : -1) : 0
+        c.rect(x - w, H - 1 - yy, x + w, H - yy, [0x10, 0x12, 0x1e], 210)
+      }
+    }
   }
   // Вертикальные трещины — тонкие тёмные зигзаги сверху донизу.
   for (let i = 0; i < 22; i++) {

@@ -32,6 +32,7 @@ import { FpsGuard } from '../systems/FpsGuard'
 import { AudioSystem } from '../systems/Audio'
 import { QUALITY } from '../systems/quality'
 import { buildCaveTilemap } from '../systems/TileBuilder'
+import { paintCave, erodeCave, type PaintedCave } from '../systems/CavePainter'
 import { generateCave, biomeIndexAtMeters, type CaveData } from '../gen/cave'
 import { Rng, hashSeed } from '../gen/rng'
 import { MUTATIONS } from '../config/mutations'
@@ -135,6 +136,8 @@ export class CaveScene extends Phaser.Scene {
   private sceneMods = { thorns: 0, detectMult: 1, stunMs: 0, lightMult: 1, sporeBreath: false, echo: false, spikeMane: 0 }
   /** Слои тайлмапа (для коллизий возрождённых мобов). */
   private tileLayers: import('../systems/TileBuilder').CaveLayers | null = null
+  /** Шаг 15: запечённый органический рендер стен (чанки + куллинг). */
+  private paint: PaintedCave | null = null
 
   constructor() {
     super('Cave')
@@ -169,6 +172,10 @@ export class CaveScene extends Phaser.Scene {
 
     // ── Генерация ───────────────────────────────────────────────────────────
     this.cave = generateCave(this.seedBase, this.depth)
+    // Шаг 15: шумовая эрозия границы — ДО всех систем (физика/спавны/декор
+    // видят эродированный мир). Лечит «террасы» тайловой сетки: осевые
+    // участки границы размываются изолиниями шума, детерминировано.
+    erodeCave(this.cave)
     const { cols, rows, tile } = this.cave
     this.worldW = cols * tile
     this.worldH = rows * tile
@@ -183,6 +190,16 @@ export class CaveScene extends Phaser.Scene {
     // ── Тайлмап: камень + земля (коллизии), декор ──────────────────────────
     const layers = buildCaveTilemap(this, this.cave)
     this.tileLayers = layers
+
+    // ── Шаг 15: органическая запечёнка стен (marching squares, без сетки) ──
+    // Слой 0.5: выше дальних скал (0), ниже декора (2) и существ (3+).
+    this.paint = paintCave(this, this.cave, 0.5)
+    // Текстуры живут в глобальном менеджере — чистим при шатдауне сцены
+    // (каждый следующий слой глубины = новый старт CaveScene).
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.paint?.destroy()
+      this.paint = null
+    })
 
     // ── Атмосфера (шаг 5) ───────────────────────────────────────────────────
     this.buildParallax()
@@ -526,6 +543,12 @@ export class CaveScene extends Phaser.Scene {
     // Разморозка — ВНЕ страховки: даже после ошибочного кадра мир обязан ожить.
     this.hitStop.update()
     try {
+      // Отладочный godmode для скриншот-тестов (агент ставит window.__GOD__).
+      if ((window as unknown as { __GOD__?: boolean }).__GOD__) {
+        this.vitals.hp = this.vitals.maxHp
+        this.vitals.hunger = Math.max(this.vitals.hunger, this.vitals.maxHunger * 0.5)
+        this.dying = false
+      }
       const frozen = this.hitStop.active
 
       if (!frozen && !this.dying) {
@@ -534,7 +557,9 @@ export class CaveScene extends Phaser.Scene {
 
         // Контекст мобов: свет хищника = его зрение (мутации маскируют);
         // экосистема видит соседей и туши (шаг 7).
-        const lightR = this.mask.playerRadius(time)
+        // Шаг 15: свет стал шире (340) ради ВИДИМОСТИ пещеры — но мобы
+        // замечают существо по-прежнему в прежнем радиусе (баланс не тронут).
+        const lightR = this.mask.playerRadius(time) * LIGHT.playerLight.detectionShare
         const ctx: EnemyContext = {
           playerX: this.creature.x,
           playerY: this.creature.y,
@@ -642,6 +667,15 @@ export class CaveScene extends Phaser.Scene {
       for (const p of this.parallax) {
         p.ts.tilePositionX = cam.scrollX * p.factor
         p.ts.tilePositionY = cam.scrollY * p.factor
+      }
+      // Шаг 15: куллинг чанков запечёнки — рисуем только видимые.
+      if (this.paint) {
+        const view = cam.worldView
+        for (let i = 0; i < this.paint.chunks.length; i++) {
+          const r = this.paint.rects[i]
+          const visible = view.x < r.right && view.right > r.x && view.y < r.bottom && view.bottom > r.y
+          this.paint.chunks[i].setVisible(visible)
+        }
       }
       this.mask.update(this)
       this.motes.update(this, this.creature.x, this.creature.y)
