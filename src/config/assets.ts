@@ -31,19 +31,11 @@ export const ASSETS: AssetEntry[] = [
   { key: 'decor-vine', file: 'decor-vine.png' },
   { key: 'mushroom', file: 'mushroom.png' },
   { key: 'spore', file: 'spore.png' },
-  // Тайлы (шаг 4 — тайлмап процедурной пещеры).
-  { key: 'tile-wall', file: 'tile-wall.png' },
-  { key: 'tile-floor', file: 'tile-floor.png' },
-  { key: 'tile-stone', file: 'tile-stone.png' },
-  // Шаг 12: варианты камня (зерно/окаменелость/трещина) и земля
-  // по контексту к воздуху: top (пол), side (стена), bottom (потолок).
-  { key: 'tile-stone-b', file: 'tile-stone-b.png' },
-  { key: 'tile-stone-c', file: 'tile-stone-c.png' },
-  { key: 'tile-stone-d', file: 'tile-stone-d.png' },
-  { key: 'tile-dirt', file: 'tile-dirt.png' },
-  { key: 'tile-dirt-top', file: 'tile-dirt-top.png' },
-  { key: 'tile-dirt-side', file: 'tile-dirt-side.png' },
-  { key: 'tile-dirt-bottom', file: 'tile-dirt-bottom.png' },
+  // Шаг 14: атлас пещерных тайлов — автотайлинг края (битмаска N/E/S/W,
+  // 16 контекстов: rim-light пола, градиент стен, потолок со сталактитиками)
+  // + 4 страты глубины камня (BFS от воздуха: толща читается 3D-массой).
+  // Заменил россыпь tile-stone*/tile-dirt* (шаг 4/12).
+  { key: 'tiles-cave', file: 'tiles-cave.png' },
   { key: 'decor-moss', file: 'decor-moss.png' },
   { key: 'decor-crystal', file: 'decor-crystal.png' },
   { key: 'decor-bone', file: 'decor-bone.png' },

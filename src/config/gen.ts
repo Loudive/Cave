@@ -39,24 +39,95 @@ export interface GenConfig {
     /** Шаг 13: множитель увеличения полной карты. */
     bigMapScale: number
   }
-  ca: {
-    fillProb: number
-    iterations: number
-    birthLimit: number
-    deathLimit: number
+  /** Шаг 14: большие органичные каверны (референсы Hollow Knight/Blasphemous). */
+  caverns: {
+    hubRxMin: number
+    hubRxMax: number
+    hubRyMin: number
+    hubRyMax: number
+    hubYFrom: number
+    hubYTo: number
+    hubXFrom: number
+    hubXTo: number
+    countMin: number
+    countMax: number
+    rxMin: number
+    rxMax: number
+    ryMin: number
+    ryMax: number
+    wobble: number
+    edgeNoiseScale: number
+    edgeNoiseOffsetX: number
+    edgeNoiseOffsetY: number
+    expMin: number
+    expMax: number
+    tierTopFrom: number
+    tierTopTo: number
+    tierMidFrom: number
+    tierMidTo: number
+    tierLowFrom: number
+    tierLowTo: number
+    entranceXShare: number
+    entranceYFrom: number
+    entranceYTo: number
+    entranceRx: number
+    entranceRy: number
+    exitXShare: number
+    exitYFrom: number
+    exitYTo: number
+    exitRx: number
+    exitRy: number
+    pathHopsMin: number
+    pathHopsMax: number
+    centerSpacing: number
+    /** Поле от края для центров каверн (тайлы). */
+    edgeMarginTiles: number
+    /** Множитель попыток размещения каверн. */
+    placeBudget: number
+    /** Амплитуда волнистой каймы карты (тайлы). */
+    borderWobble: number
+    /** Частота шума волнистой каймы. */
+    borderNoiseScale: number
+    /** Каналы декорреляции шума каймы [лево, право, верх, низ]. */
+    borderNoiseChannels: number[]
   }
-  drunkard: {
-    tunnelRadius: number
-    driftToExit: number
-    extraWalks: number
-    extraSteps: number
-    extraRadius: number
+  /** Шаг 14: туннели — широкая тропа, узкие лазы, вертикальные шахты. */
+  tunnels: {
+    mainRadius: number
+    mainDrift: number
+    crawlRadius: number
+    crawlDrift: number
+    loopMin: number
+    loopMax: number
+    shaftRadius: number
+    shaftDrift: number
+    shaftsPerBoundary: number
+    guardStepsPerTile: number
+    guardBaseSteps: number
+    /** Шанс шага вбок даже в дрейфе — стены шахт не прямые. */
+    wanderStep: number
+    /** «Дыхание» радиуса туннеля — органичное сужение/расширение. */
+    wave: {
+      freq: number
+      amp: number
+    }
   }
-  chambers: {
-    entranceW: number
-    entranceH: number
-    exitW: number
-    exitH: number
+  /** Шаг 14: острова-уступы внутри больших каверн. */
+  islands: {
+    perAreaTiles: number
+    maxPerCavern: number
+    wMin: number
+    wMax: number
+    hMin: number
+    hMax: number
+    tierFracs: number[]
+    xSpread: number
+    ySpread: number
+    marginSide: number
+    marginTop: number
+    placeBudget: number
+    taperSoftness: number
+    edgeJitter: number
   }
   connectivity: {
     targetReachable: number
@@ -65,6 +136,7 @@ export interface GenConfig {
   biomeJitter: {
     noiseScale: number
     amplitudeTiles: number
+    channelStep: number
   }
   biomeBands: BiomeBand[]
   mushroom: {
@@ -75,6 +147,9 @@ export interface GenConfig {
   nest: {
     minSpacingTiles: number
     minDistFromEntranceTiles: number
+    minDistFromExitTiles: number
+    placeBudget: number
+    fieldMarginTiles: number
   }
   seedAlphabet: string
   seedLength: number

@@ -2,14 +2,14 @@
   "_doc": {
     "readme": "Все параметры генерации пещер (шаг 4). Код не содержит магических констант — правь только этот файл. Сетка в тайлах 16×16 px, глубина в метрах.",
     "map": "map: размер карты. cols×rows тайлов по tile px; metersPerPixel — сколько «метров» глубины в одном пикселе мира (карта 163×100×16 = 2608×1600 px = 800 м). Шаг 13: revealTiles — радиус открытия тумана войны мини-карты (в тайлах) вокруг существа; карта СТРОИТСЯ по мере исследования (Hidden Deep). bigMapHoldMs — сколько мс держать M, чтобы развернуть карту во весь экран; bigMapScale — множитель увеличения.",
-    "ca": "Cellular automata: fillProb — начальная доля стен, iterations — проходов сглаживания, birthLimit — соседей-стен, при котором клетка становится стеной, deathLimit — при котором воздухом.",
-    "drunkard": "Drunkard's walk: tunnelRadius — радиус высекаемого туннеля (тайла), driftToExit — вероятность шага в сторону выхода (остальное — случайный шаг, даёт извилистость), extraWalks×extraSteps — доп. блуждания с радиусом extraRadius для петель между кавернами.",
-    "chambers": "Стартовая и выходная камеры: ширина/высота в тайлах. Вход — сверху слева, выход — снизу справа (стороны рандомизируются seed'ом).",
+    "caverns": "Шаг 14 (референсы Hollow Knight/Blasphemous): БОЛЬШИЕ ОРГАНИЧНЫЕ каверны — супердиски с шумовым дрожанием края, вместо квадратных камер и мелких cellular-каверн. hub* — центральная каверна-хаб (самая большая, многоярусная, с островами); countMin/Max — обычных каверн помимо входа/выхода/хаба; rx/ry — радиусы в тайлах; wobble — амплитуда шумового дрожания края (0.22 ≈ живой рваный контур); expMin/Max — показатель супердиска (2 = эллипс, меньше = мягче, БОЛЬШЕ НЕ БЫВАЕТ — прямые срезы запрещены стражем стиля); edgeNoiseScale — частота шума края (меньше = крупнее неровности); tier*From/To — доли высоты карты на ярусы верх/середина/низ (многоуровневость); entrance/exit — доли карты для камер входа/выхода; pathHopsMin/Max — через сколько каверн идет главная тропа; centerSpacing — мин. дистанция центров каверн в долях суммы радиусов (слияние без поглощения). borderWobble — амплитуда волнистой каймы карты (тайлы): граница не прямая. hubXFrom/To — доля ширины для X-центра хаба; edgeMarginTiles — поле от края для центров каверн; placeBudget — множитель попыток размещения; edgeNoiseOffset* — декорреляция шума края; borderNoiseScale/Channels — частота и каналы шума волнистой каймы.",
+    "tunnels": "Шаг 14: туннели. main* — широкая извилистая тропа вход→выход (radius в тайлах, drift — доля шагов к цели, остальное шатание); crawl* — узкие лазы (петли + связка всех каверн): radius 2 — впритык существу 28px, «лаз» ощущается; loopMin/Max — число петлевых лазов (МНОГО лазов — по запросу игрока); shaft* — вертикальные шахты между ярусами; shaftsPerBoundary — шахт на каждую границу ярусов; guardStepsPerTile — бюджет шагов пьяницы на клетку дистанции (страховка от зависания); wanderStep — шанс шага вбок даже в дрейфе к цели (центр туннеля блуждает — стены шахт не прямые); wave — «дыхание» радиуса туннеля (freq — частота синусоиды на шаг, amp — амплитуда в тайлах): без него трубка постоянного радиуса режет идеально прямые полы и стены — машинный вид, запрещён стражем стиля. guardBaseSteps — довесок к бюджету шагов пьяницы.",
+    "islands": "Шаг 14: каменные острова-уступы ВНУТРИ больших каверн (многоуровневый трэверсал — референс многоярусных арен Hollow Knight). perAreaTiles — один остров на N тайлов площади каверны; maxPerCavern — потолок; w/h — размеры; tierFracs — доли высоты каверны для ярусов островов; xSpread/ySpread — разброс позиции в долях радиусов; marginSide/marginTop — минимальные поля воздуха вокруг (остров не срастается со стенами и не запирает проход: под ним всегда можно пройти). placeBudget — множитель попыток; taperSoftness — мягкость сужения низа; edgeJitter — дрожание концов верхней кромки.",
     "connectivity": "targetReachable — минимальная доля воздуха, достижимого от входа (остальное запечатывается камнем); repairMaxTries — сколько раз перегенерировать с offset seed'а, пока критерий не выполнен.",
-    "biomeJitter": "Границы биомов дрожат через шум: noiseScale — масштаб шума по столбцу, amplitudeTiles — амплитуда дрожания в тайлах.",
+    "biomeJitter": "Границы биомов дрожат через шум: noiseScale — масштаб шума по столбцу, amplitudeTiles — амплитуда дрожания в тайлах. channelStep — шаг декорреляции каналов шума границ.",
     "biomeBands": "Полосы биомов по глубине забега (GDD §6). toMeters — верхняя граница полосы в метрах ГЛОБАЛЬНОЙ глубины; glowColor/glow — цвет биолюма и текстура свечения; mushroomDensity — шанс гриба на клетку пола; moss/crystal/bone — шансы декора; nests — гнёзд мобов на полосу в одной карте.",
     "mushroom": "minSpacingTiles — минимальная дистанция между грибами; maxTotal — потолок грибов на карту; skipNearEntranceTiles — радиус чистоты вокруг входа.",
-    "nest": "minSpacingTiles — дистанция между гнёздами; minDistFromEntranceTiles — гнёзда не рядом со стартом.",
+    "nest": "minSpacingTiles — дистанция между гнёздами; minDistFromEntranceTiles — гнёзда не рядом со стартом. (шаг 14) placeBudget — попыток размещения на полосу; fieldMarginTiles — поле от края карты; minDistFromExitTiles — дистанция от выхода.",
     "seed": "Алфавит seed'а — без похожих символов (0/O, 1/I).",
     "biomeVine": "Шаг 12: vine — плотность лоз с потолков в полосе биома (доля подходящих клеток): грибные поляны заросли, лавовые глубины почти голые."
   },
@@ -22,24 +22,94 @@
     "bigMapHoldMs": 260,
     "bigMapScale": 4.6
   },
-  "ca": {
-    "fillProb": 0.47,
-    "iterations": 5,
-    "birthLimit": 5,
-    "deathLimit": 3
+  "caverns": {
+    "hubRxMin": 15,
+    "hubRxMax": 19,
+    "hubRyMin": 11,
+    "hubRyMax": 15,
+    "hubYFrom": 0.42,
+    "hubYTo": 0.58,
+    "countMin": 6,
+    "countMax": 8,
+    "rxMin": 8,
+    "rxMax": 13,
+    "ryMin": 7,
+    "ryMax": 11,
+    "wobble": 0.22,
+    "edgeNoiseScale": 0.2,
+    "expMin": 1.65,
+    "expMax": 2.25,
+    "tierTopFrom": 0.12,
+    "tierTopTo": 0.34,
+    "tierMidFrom": 0.38,
+    "tierMidTo": 0.62,
+    "tierLowFrom": 0.66,
+    "tierLowTo": 0.88,
+    "entranceXShare": 0.22,
+    "entranceYFrom": 0.14,
+    "entranceYTo": 0.2,
+    "entranceRx": 7,
+    "entranceRy": 5,
+    "exitXShare": 0.24,
+    "exitYFrom": 0.82,
+    "exitYTo": 0.88,
+    "exitRx": 8,
+    "exitRy": 6,
+    "pathHopsMin": 2,
+    "pathHopsMax": 4,
+    "centerSpacing": 0.62,
+    "borderWobble": 1.6,
+    "hubXFrom": 0.38,
+    "hubXTo": 0.62,
+    "edgeMarginTiles": 8,
+    "placeBudget": 8,
+    "edgeNoiseOffsetX": 2.9,
+    "edgeNoiseOffsetY": 5.3,
+    "borderNoiseScale": 0.55,
+    "borderNoiseChannels": [
+      3.7,
+      8.9,
+      5.1,
+      1.3
+    ]
   },
-  "drunkard": {
-    "tunnelRadius": 2,
-    "driftToExit": 0.45,
-    "extraWalks": 10,
-    "extraSteps": 110,
-    "extraRadius": 1
+  "tunnels": {
+    "mainRadius": 3,
+    "mainDrift": 0.62,
+    "crawlRadius": 2,
+    "crawlDrift": 0.5,
+    "loopMin": 9,
+    "loopMax": 11,
+    "shaftRadius": 2,
+    "shaftDrift": 0.7,
+    "shaftsPerBoundary": 2,
+    "guardStepsPerTile": 7,
+    "wave": {
+      "freq": 0.33,
+      "amp": 0.9
+    },
+    "wanderStep": 0.16,
+    "guardBaseSteps": 8
   },
-  "chambers": {
-    "entranceW": 9,
-    "entranceH": 6,
-    "exitW": 11,
-    "exitH": 8
+  "islands": {
+    "perAreaTiles": 300,
+    "maxPerCavern": 4,
+    "wMin": 4,
+    "wMax": 9,
+    "hMin": 2,
+    "hMax": 3,
+    "tierFracs": [
+      0.32,
+      0.56,
+      0.8
+    ],
+    "xSpread": 0.55,
+    "ySpread": 0.8,
+    "marginSide": 2,
+    "marginTop": 3,
+    "placeBudget": 8,
+    "taperSoftness": 0.8,
+    "edgeJitter": 1
   },
   "connectivity": {
     "targetReachable": 0.93,
@@ -47,7 +117,8 @@
   },
   "biomeJitter": {
     "noiseScale": 0.075,
-    "amplitudeTiles": 6
+    "amplitudeTiles": 6,
+    "channelStep": 13.7
   },
   "biomeBands": [
     {
@@ -130,7 +201,10 @@
   },
   "nest": {
     "minSpacingTiles": 16,
-    "minDistFromEntranceTiles": 20
+    "minDistFromEntranceTiles": 20,
+    "placeBudget": 160,
+    "fieldMarginTiles": 3,
+    "minDistFromExitTiles": 6
   },
   "seedAlphabet": "23456789ABCDEFGHJKMNPQRSTUVWXYZ",
   "seedLength": 6

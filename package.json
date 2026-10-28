@@ -10,7 +10,9 @@
     "build": "npm run assets && tsc --noEmit && vite build",
     "build:local": "npm run assets && vite build --base=/game/",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "cave:audit": "node scripts/cave-style-audit.mjs",
+    "smoke:cave": "node scripts/smoke-cave.mjs"
   },
   "dependencies": {
     "phaser": "^3.90.0"

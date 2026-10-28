@@ -38,6 +38,11 @@ export class Rng {
     return min + this.int(max - min + 1)
   }
 
+  /** Дробное [min, max). Шаг 14: показатели формы каверн (экспоненты, доли). */
+  span(min: number, max: number): number {
+    return min + this.float() * (max - min)
+  }
+
   /** Событие с вероятностью p. */
   chance(p: number): boolean {
     return this.float() < p

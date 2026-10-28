@@ -98,6 +98,14 @@ class Canvas {
   }
 
   px(x, y, [r, g, b], a = 255) {
+    // Шаг 14 (фикс «зелёных квадратов»): дробные координаты давали дробный
+    // индекс (y * w + x) * 4 — при x = *.5 индекс ЦЕЛЫЙ, но сдвинутый на 2
+    // байта: запись RGBA попадала в СИНИЕ/АЛЬФА одного пикселя и КРАСНЫЙ/
+    // ЗЕЛЁНЫЙ соседнего — альфа 235 навсегда оставалась в зелёном канале
+    // (#0DFF11-хромакей в силуэтах-задниках). Округляем — целочисленный
+    // пиксель-арт и так не допускает дробей.
+    x = Math.floor(x)
+    y = Math.floor(y)
     if (x < 0 || y < 0 || x >= this.w || y >= this.h) return
     const i = (y * this.w + x) * 4
     const sa = a / 255
@@ -163,6 +171,26 @@ class Canvas {
   }
 
   save(name) {
+    // Шаг 14: хромакей-аудит — ни один ассет не имеет права содержать
+    // неоновые цвета (зелёный/пурпурный хромакей). Если генератор снова
+    // начнёт «сдвигать каналы», сборка упадёт здесь с точными координатами,
+    // а не молча уедет в релиз (нулевая толерантность, как assertNumbers).
+    for (let y = 0; y < this.h; y++) {
+      for (let x = 0; x < this.w; x++) {
+        const i = (y * this.w + x) * 4
+        const r = this.data[i], g = this.data[i + 1], b = this.data[i + 2], a = this.data[i + 3]
+        if (a > 60) {
+          const neonGreen = g > 200 && r < 60 && b < 60
+          const neonMagenta = r > 200 && b > 200 && g < 60
+          if (neonGreen || neonMagenta) {
+            throw new Error(
+              `ХРОМАКЕЙ В АССЕТЕ ${name} @(${x},${y}) rgba(${r},${g},${b},${a}) — ` +
+              `сдвиг каналов или мусорный цвет; генератор сломан, см. px()`,
+            )
+          }
+        }
+      }
+    }
     writeFileSync(join(OUT, name), encodePNG(this.w, this.h, this.data))
     console.log(`  ${name}  (${this.w}×${this.h})`)
   }
@@ -214,34 +242,6 @@ makeGlow('glow-acid.png', PAL.acid)
   c.save('vignette.png')
 }
 
-/** Тайл стены 16×16 (шаг 4 возьмёт в тайлмап). */
-{
-  const c = new Canvas(16, 16)
-  c.fill(PAL.rockDark)
-  const rnd = mulberry32(1)
-  for (let i = 0; i < 26; i++) {
-    c.rect(Math.floor(rnd() * 16), Math.floor(rnd() * 16),
-      Math.floor(rnd() * 16), Math.floor(rnd() * 16),
-      rnd() > 0.5 ? PAL.rockMid : PAL.rockLight,
-      Math.round((0.2 + rnd() * 0.4) * 255))
-  }
-  c.save('tile-wall.png')
-}
-
-/** Тайл пола 16×16 — чуть светлее стены, крупное зерно. */
-{
-  const c = new Canvas(16, 16)
-  c.fill(PAL.rockMid)
-  const rnd = mulberry32(2)
-  for (let i = 0; i < 22; i++) {
-    c.rect(Math.floor(rnd() * 16), Math.floor(rnd() * 16),
-      Math.floor(rnd() * 16), Math.floor(rnd() * 16),
-      rnd() > 0.6 ? PAL.rockLight : PAL.rockDark,
-      Math.round((0.2 + rnd() * 0.35) * 255))
-  }
-  c.save('tile-floor.png')
-}
-
 /** Пиксель-гриб 16×24: шляпка-биолюм на ножке (спрайт светильника пещеры). */
 {
   const c = new Canvas(16, 24)
@@ -270,31 +270,125 @@ makeGlow('glow-acid.png', PAL.acid)
 // Три слоя: камень (ядро стен), земля (край стены у воздуха), декор
 // (мох/кристалл/кость — прозрачный фон, лежат на полу пещеры).
 
-/** Тайл камня 16×16 — ядро стен, почти чёрный с редким зерном. */
+// ── Шаг 14: атлас пещерных тайлов «tiles-cave.png» ────────────────────────
+// 8×4 слота по 16px (128×64). Многослойные стены по референсам Hollow Knight
+// / Blasphemous: светлая тёплая кромка пола (rim-light сверху), вертикальный
+// градиент стен (свет падает сверху), тёмный потолок со сталактитиками,
+// и страты глубины — камень темнеет с дистанцией от воздуха (BFS в
+// TileBuilder): стена читается толстой 3D-массой, уходящей в бездну.
+//
+// Слоты: 0..3 — камень глубины (ближе к воздуху → темнее → почти-бездна);
+// 4..19 — край стены к воздуху, битмаска воздушных соседей N=1 E=2 S=4 W=8
+// (автотайлинг: 16 контекстов вместо 4, углы и «губы» рисуются сами);
+// 20..23 — резерв (заполнены камнем-1).
 {
-  const c = new Canvas(16, 16)
-  c.fill([0x14, 0x14, 0x1c])
-  const rnd = mulberry32(31)
-  for (let i = 0; i < 14; i++) {
-    c.rect(Math.floor(rnd() * 16), Math.floor(rnd() * 16),
-      Math.floor(rnd() * 16), Math.floor(rnd() * 16),
-      PAL.rockDark, Math.round((0.35 + rnd() * 0.4) * 255))
+  const T = 16
+  const COLS = 8
+  const ROWS = 4
+  const c = new Canvas(T * COLS, T * ROWS)
+  const stonePal = {
+    near: { base: [0x26, 0x26, 0x33], grain: PAL.rockMid, grainN: 12, grainA: [0.3, 0.65] },
+    mid: { base: [0x1d, 0x1d, 0x29], grain: PAL.rockDark, grainN: 9, grainA: [0.25, 0.55] },
+    deep: { base: [0x15, 0x15, 0x1f], grain: PAL.rockDark, grainN: 6, grainA: [0.2, 0.45] },
+    void: { base: [0x0f, 0x0f, 0x16], grain: [0x12, 0x12, 0x1b], grainN: 3, grainA: [0.2, 0.4] },
   }
-  c.save('tile-stone.png')
-}
 
-/** Тайл земли 16×16 — край стены, обращённый к воздуху: теплее и светлее. */
-{
-  const c = new Canvas(16, 16)
-  c.fill([0x3a, 0x32, 0x2c])
-  const rnd = mulberry32(32)
-  for (let i = 0; i < 20; i++) {
-    c.rect(Math.floor(rnd() * 16), Math.floor(rnd() * 16),
-      Math.floor(rnd() * 16), Math.floor(rnd() * 16),
-      rnd() > 0.5 ? PAL.rockMid : [0x46, 0x3c, 0x33],
-      Math.round((0.25 + rnd() * 0.4) * 255))
+  /** Зерно камня в слот (ox, oy) — база + мягкие пятна. */
+  function stoneSlot(ox, oy, pal, seed, strataLine) {
+    c.rect(ox, oy, ox + T - 1, oy + T - 1, pal.base, 255)
+    const rnd = mulberry32(seed)
+    for (let i = 0; i < pal.grainN; i++) {
+      const x = ox + Math.floor(rnd() * (T - 3))
+      const y = oy + Math.floor(rnd() * (T - 3))
+      const w = 1 + Math.floor(rnd() * 3)
+      const h = 1 + Math.floor(rnd() * 2)
+      c.rect(x, y, x + w, y + h, pal.grain,
+        Math.round((pal.grainA[0] + rnd() * (pal.grainA[1] - pal.grainA[0])) * 255))
+    }
+    if (strataLine) {
+      // Бездна: едва заметная стратификация — порода слоями.
+      c.rect(ox, oy + 6, ox + T - 1, oy + 6, [0x11, 0x11, 0x19], 140)
+      c.rect(ox + 2, oy + 11, ox + T - 3, oy + 11, [0x11, 0x11, 0x19], 100)
+    }
   }
-  c.save('tile-dirt.png')
+
+  // Слоты 0..3 — страты глубины.
+  const depthPals = [stonePal.near, stonePal.mid, stonePal.deep, stonePal.void]
+  for (let d = 0; d < 4; d++) {
+    stoneSlot((d % COLS) * T, Math.floor(d / COLS) * T, depthPals[d], 71 + d, d === 3)
+  }
+
+  // Слоты 4..19 — край стены к воздуху (автотайл по битмаске).
+  const N = 1, E = 2, S = 4, W = 8
+  for (let m = 0; m < 16; m++) {
+    const slot = 4 + m
+    const ox = (slot % COLS) * T
+    const oy = Math.floor(slot / COLS) * T
+    stoneSlot(ox, oy, stonePal.near, 81 + m, false)
+    const rnd = mulberry32(121 + m)
+
+    // Пол (воздух сверху): тёплая земля со светлой кромкой — rim-light,
+    // свет падает сверху (референс: «тонкий подсвет по верхним граням»).
+    if (m & N) {
+      c.rect(ox, oy, ox + T - 1, oy, [0x7d, 0x6a, 0x50], 255)
+      c.rect(ox, oy + 1, ox + T - 1, oy + 1, [0x5f, 0x51, 0x40], 255)
+      c.rect(ox, oy + 2, ox + T - 1, oy + 2, [0x46, 0x3c, 0x31], 220)
+      // Дизер-переход к камню — не резкая граница.
+      for (let x = 0; x < T; x += 2) c.px(ox + x + (Math.floor(rnd() * 2)), oy + 3, [0x46, 0x3c, 0x31], 170)
+      // Камешки в земле.
+      c.px(ox + 4, oy + 2, [0x57, 0x49, 0x3a], 200)
+      c.px(ox + 11, oy + 2, [0x57, 0x49, 0x3a], 190)
+      // Редкий биолюм-мох на кромке — пещера живая.
+      if (rnd() > 0.45) c.px(ox + 7, oy + 1, [0x3d, 0x7a, 0x6c], 150)
+    }
+
+    // Потолок (воздух снизу): тёмная кромка + сталактитики-борозды.
+    if (m & S) {
+      c.rect(ox, oy + T - 1, ox + T - 1, oy + T - 1, [0x0e, 0x0e, 0x15], 255)
+      c.rect(ox, oy + T - 2, ox + T - 1, oy + T - 2, [0x16, 0x16, 0x20], 230)
+      c.rect(ox, oy + T - 3, ox + T - 1, oy + T - 3, [0x1b, 0x1b, 0x26], 160)
+      // Борозды-сталактиты, врезанные в тайл снизу.
+      for (const dx of [3, 9, 13]) {
+        const len = 2 + Math.floor(rnd() * 2)
+        c.rect(ox + dx, oy + T - 1 - len, ox + dx, oy + T - 2, [0x0d, 0x0d, 0x13], 235)
+      }
+    }
+
+    // Стена (воздух сбоку): вертикальный градиент — верх ловит свет,
+    // низ уходит в тень (свет сверху, референс Blasphemous).
+    const gradTop = [0x43, 0x43, 0x5a]
+    const gradBot = [0x18, 0x18, 0x24]
+    for (const [bit, gx] of [[E, T - 1], [W, 0]]) {
+      if (!(m & bit)) continue
+      for (let y = 0; y < T; y++) {
+        const t = y / (T - 1)
+        const col = [
+          Math.round(gradTop[0] + (gradBot[0] - gradTop[0]) * t),
+          Math.round(gradTop[1] + (gradBot[1] - gradTop[1]) * t),
+          Math.round(gradTop[2] + (gradBot[2] - gradTop[2]) * t),
+        ]
+        c.px(ox + gx, oy + y, col, 255)
+        const inner = [
+          Math.round(col[0] * 0.8), Math.round(col[1] * 0.8), Math.round(col[2] * 0.8),
+        ]
+        c.px(ox + (bit === E ? gx - 1 : gx + 1), oy + y, inner, 170)
+      }
+    }
+
+    // Скругление внешних углов (смежные воздухи): угол «срезается» базой —
+    // контур кромки не сходится в острый машинный угол.
+    if (m & N && m & E) c.px(ox + T - 1, oy, stonePal.near.base, 255)
+    if (m & N && m & W) c.px(ox, oy, stonePal.near.base, 255)
+    if (m & S && m & E) c.px(ox + T - 1, oy + T - 1, [0x0b, 0x0b, 0x12], 255)
+    if (m & S && m & W) c.px(ox, oy + T - 1, [0x0b, 0x0b, 0x12], 255)
+  }
+
+  // Слоты 20..23 — резерв: камень-1 (не используется, но валиден).
+  for (let s = 20; s < 24; s++) {
+    stoneSlot((s % COLS) * T, Math.floor(s / COLS) * T, stonePal.near, 141 + s, false)
+  }
+
+  c.save('tiles-cave.png')
 }
 
 /** Декор «мох» 16×16: биолюм-крап у пола (прозрачный фон). */
@@ -468,21 +562,24 @@ makeSilhouette('silhouette-near.png', 52, {
 // AO (затемнение) в нижних углах, «бугристые» органичные контуры,
 // висящие корни. Всё — в палитре контракта (design/DECISIONS.md).
 
-/** Страта-задник 768×1280: дальняя стена пещеры за силуэтами — слоистые
- *  напластования породы с дизерингом, трещинами и карманами свечения.
- *  Горизонтально бесшовный (дублирование фигур на ±W). */
+/** Страта-задник 768×1280 (шаг 14 — атмосферная перспектива по референсам
+ *  Hollow Knight/Blasphemous): дальняя стена СВЕТЛЕЕ и туманнее игрового
+ *  плана — воздух пещеры синеет в глубине, слоистые напластования с
+ *  дизерингом, мягкие карманы дымки-свечения вдалеке. Контраст «тёмный
+ *  передний план ↔ светлая дымка» даёт чтение глубины. Горизонтально
+ *  бесшовный (дублирование фигур на ±W). */
 {
   const W = 768
   const H = 1280
   const c = new Canvas(W, H)
-  c.fill([0x0c, 0x0c, 0x13])
+  c.fill([0x16, 0x18, 0x26])
   const rnd = mulberry32(71)
-  // Напластования: 8 полос — каждая чуть другого оттенка тёмного,
-  // граница — дизеринг (шум перекрытия), не прямая линия.
+  // Напластования: 8 полос светлее тайлов игрового плана (#15151f…):
+  // дальняя стена читается сквозь «воздух» пещеры.
   const strataColors = [
-    [0x13, 0x13, 0x20], [0x10, 0x11, 0x1c], [0x15, 0x14, 0x22],
-    [0x11, 0x10, 0x1a], [0x17, 0x15, 0x24], [0x10, 0x12, 0x1d],
-    [0x14, 0x13, 0x1e], [0x11, 0x13, 0x20],
+    [0x1d, 0x1f, 0x30], [0x1a, 0x1c, 0x2b], [0x1f, 0x20, 0x32],
+    [0x18, 0x1b, 0x29], [0x21, 0x20, 0x33], [0x19, 0x1d, 0x2d],
+    [0x1e, 0x1e, 0x2f], [0x1a, 0x1c, 0x2c],
   ]
   let y = 0
   for (let b = 0; b < strataColors.length; b++) {
@@ -497,6 +594,21 @@ makeSilhouette('silhouette-near.png', 52, {
       }
     }
     y += bandH
+  }
+  // Шаг 14: карманы дымки вдалеке — крупные мягкие пятна холодного
+  // свечения (атмосферная перспектива: глубина «дышит», а не плоская).
+  const hazeColors = [
+    [0x2a, 0x33, 0x46], [0x27, 0x36, 0x41], [0x30, 0x30, 0x48],
+    [0x25, 0x35, 0x3d], [0x2d, 0x2d, 0x44],
+  ]
+  for (let h = 0; h < 5; h++) {
+    const hx = Math.floor(rnd() * W)
+    const hy = Math.floor(rnd() * H)
+    const hr = 130 + Math.floor(rnd() * 170)
+    c.radial(hx, hy, hr, hazeColors[h], [[0, 0.1], [0.45, 0.05], [1, 0]])
+    // Бесшовность: дубль на ±W.
+    c.radial(hx - W, hy, hr, hazeColors[h], [[0, 0.1], [0.45, 0.05], [1, 0]])
+    c.radial(hx + W, hy, hr, hazeColors[h], [[0, 0.1], [0.45, 0.05], [1, 0]])
   }
   // Вертикальные трещины — тонкие тёмные зигзаги сверху донизу.
   for (let i = 0; i < 22; i++) {
@@ -621,103 +733,6 @@ function rockBase(c, seed, opts) {
     if (rnd() > 0.6) c.px(vx + 1, vy, PAL.cyan, 140)
   }
   c.save('rock-e.png')
-}
-
-/** Варианты тайла камня (шаг 12): зерно/окаменелость/трещина — стена
- *  перестаёт быть одним размноженным тайлом. tile-stone.png — вариант A. */
-{
-  // B — крупное зерно.
-  const c = new Canvas(16, 16)
-  c.fill([0x13, 0x13, 0x1b])
-  const rnd = mulberry32(41)
-  for (let i = 0; i < 9; i++) {
-    const x = Math.floor(rnd() * 14)
-    const yy = Math.floor(rnd() * 14)
-    c.rect(x, yy, x + 1 + Math.floor(rnd() * 2), yy + 1, PAL.rockDark, Math.round((0.4 + rnd() * 0.4) * 255))
-  }
-  c.save('tile-stone-b.png')
-}
-{
-  // C — окаменелость: светлая спираль-ракушка в толще.
-  const c = new Canvas(16, 16)
-  c.fill([0x14, 0x14, 0x1c])
-  const rnd = mulberry32(42)
-  for (let i = 0; i < 8; i++) {
-    c.rect(Math.floor(rnd() * 16), Math.floor(rnd() * 16),
-      Math.floor(rnd() * 16), Math.floor(rnd() * 16), PAL.rockDark, Math.round(0.35 * 255))
-  }
-  const fossil = [0x55, 0x55, 0x6e]
-  c.rect(7, 6, 10, 9, fossil, 200)
-  c.rect(5, 7, 6, 8, fossil, 160)
-  c.rect(9, 8, 12, 11, [0x3a, 0x3a, 0x50], 170)
-  c.save('tile-stone-c.png')
-}
-{
-  // D — трещина: тонкий тёмный зигзаг через тайл.
-  const c = new Canvas(16, 16)
-  c.fill([0x13, 0x13, 0x1b])
-  const rnd = mulberry32(43)
-  for (let i = 0; i < 10; i++) {
-    c.rect(Math.floor(rnd() * 16), Math.floor(rnd() * 16),
-      Math.floor(rnd() * 16), Math.floor(rnd() * 16), PAL.rockDark, Math.round(0.3 * 255))
-  }
-  let cx = 3 + Math.floor(rnd() * 4)
-  for (let yy = 1; yy < 15; yy++) {
-    if (yy % 3 === 0) cx += rnd() > 0.5 ? 1 : -1
-    c.rect(cx, yy, cx + 1, yy, [0x08, 0x08, 0x0e], 220)
-  }
-  c.save('tile-stone-d.png')
-}
-
-/** Земля по контексту (шаг 12): tile-dirt.png остаётся «внутренним краем»,
- *  новые варианты — ориентация к воздуху: верх (пол — со светлой кромкой),
- *  бок (вертикальная штриховка), низ (потолок — с потёками). */
-{
-  // top: пол — тёплая земля со светлой кромкой (rim-light сверху).
-  const c = new Canvas(16, 16)
-  c.fill([0x3a, 0x32, 0x2c])
-  const rnd = mulberry32(51)
-  for (let i = 0; i < 14; i++) {
-    c.rect(Math.floor(rnd() * 16), Math.floor(rnd() * 16),
-      Math.floor(rnd() * 16), Math.floor(rnd() * 16),
-      rnd() > 0.5 ? PAL.rockMid : [0x46, 0x3c, 0x33], Math.round((0.25 + rnd() * 0.4) * 255))
-  }
-  c.rect(0, 0, 15, 1, [0x5a, 0x50, 0x44], 235)
-  c.rect(0, 1, 15, 2, [0x4a, 0x40, 0x38], 140)
-  c.save('tile-dirt-top.png')
-}
-{
-  // side: стена — вертикальная штриховка, у краёв «скруглённая губа».
-  const c = new Canvas(16, 16)
-  c.fill([0x35, 0x2e, 0x28])
-  const rnd = mulberry32(52)
-  for (let x = 2; x < 14; x += 3) {
-    for (let yy = 0; yy < 16; yy++) {
-      if (rnd() > 0.35) c.rect(x, yy, x, yy, [0x40, 0x37, 0x2f], Math.round((0.3 + rnd() * 0.4) * 255))
-    }
-  }
-  c.rect(0, 0, 1, 15, [0x48, 0x3e, 0x34], 190)
-  c.rect(14, 0, 15, 15, [0x48, 0x3e, 0x34], 190)
-  c.save('tile-dirt-side.png')
-}
-{
-  // bottom: потолок — темнее, с потёками-сталактитиками по нижней кромке.
-  const c = new Canvas(16, 16)
-  c.fill([0x2e, 0x28, 0x22])
-  const rnd = mulberry32(53)
-  for (let i = 0; i < 12; i++) {
-    c.rect(Math.floor(rnd() * 16), Math.floor(rnd() * 12),
-      Math.floor(rnd() * 16), Math.floor(rnd() * 12),
-      rnd() > 0.5 ? PAL.rockMid : [0x38, 0x30, 0x28], Math.round((0.25 + rnd() * 0.35) * 255))
-  }
-  // Потёки: 3 сталактитика 1–3px с нижней кромки.
-  for (let d = 0; d < 3; d++) {
-    const dx = 2 + Math.floor(rnd() * 12)
-    const dh = 2 + Math.floor(rnd() * 3)
-    c.rect(dx, 15 - dh, dx, 15, [0x40, 0x37, 0x2c], 220)
-  }
-  c.rect(0, 0, 15, 1, [0x1e, 0x1a, 0x16], 200)
-  c.save('tile-dirt-bottom.png')
 }
 
 /** Лоза/корни с потолка 16×44: 2–3 нити с завитками и семенными

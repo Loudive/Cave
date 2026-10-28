@@ -1,10 +1,17 @@
 /**
- * TileBuilder.ts — шаг 4 → шаг 12: сборка Phaser-тайлмапа из CaveData.
- * Слои: камень (ядро стен, 4 варианта по детерминированному хэшу позиции —
- * зерно/окаменелость/трещина), земля (край у воздуха — 4 контекста:
- * top=пол со светлой кромкой, side=стена, bottom=потолок с потёками,
- * inner=диагональный край), декор (мох/кристалл/кость).
- * Камень и земля — коллизии, декор — фон.
+ * TileBuilder.ts — шаг 4 → шаг 14: сборка Phaser-тайлмапа из CaveData.
+ *
+ * Шаг 14 — многослойные стены (референсы Hollow Knight / Blasphemous):
+ * один атлас tiles-cave.png (8×4 слота) вместо россыпи текстур.
+ * Слои:
+ *  · edge — край стены к воздуху: АВТОТАЙЛ по битмаске воздушных соседей
+ *    (N=1 E=2 S=4 W=8, 16 контекстов): пол несёт тёплую светлую кромку
+ *    (rim-light), стена — вертикальный градиент, потолок — тёмную кромку
+ *    со сталактитиками, внешние углы скруглены. Коллизии: да.
+ *  · stone — ядро стены со СТРАТАМИ ГЛУБИНЫ: BFS-дистанция от воздуха
+ *    (2→близко, 5+=бездна), камень темнеет вглубь — стена читается
+ *    толстой 3D-массой. Коллизии: да.
+ *  · decor — мох/кристалл/кость (прозрачный фон, без коллизий).
  */
 import Phaser from 'phaser'
 import type { CaveData } from '../gen/cave'
@@ -12,45 +19,96 @@ import type { CaveData } from '../gen/cave'
 export interface CaveLayers {
   stone: Phaser.Tilemaps.TilemapLayer
   ground: Phaser.Tilemaps.TilemapLayer
-  /** Шаг 12: ВСЕ слои с коллизиями — камень ×4 варианта + земля ×4 контекста.
- * Коллайдеры существ обязаны использовать solid: после разбиения на
- * варианты слоёв физика только по stone/ground пропускала 3/4 стен
- * (грабля поймана верификацией: игрок пролетал сквозь стены). */
+  /** ВСЕ слои с коллизиями (edge + stone). */
   solid: Phaser.Tilemaps.TilemapLayer[]
   /** Слой декора (верхний, без коллизий) — для сортировки глубины. */
   decor: Phaser.Tilemaps.TilemapLayer
 }
 
-/** Варианты тайла камня по хэшу позиции (детерминированно, шаг 12). */
-const STONE_VARIANTS = ['tile-stone', 'tile-stone-b', 'tile-stone-c', 'tile-stone-d'] as const
-
-/** Хэш координат → стабильный индекс варианта (одинаков каждый билд). */
-function variantHash(x: number, y: number): number {
-  return (((x * 73856093) ^ (y * 19349663)) >>> 0) % STONE_VARIANTS.length
-}
+/** ID слотов атласа tiles-cave.png (8 колонок). */
+const STONE_NEAR = 0
+const STONE_MID = 1
+const STONE_DEEP = 2
+const STONE_VOID = 3
+/** Край стены: слот 4 + битмаска воздушных соседей (N=1 E=2 S=4 W=8). */
+const EDGE_BASE = 4
+/** Максимальная рисуемая глубина страт (дальше — бездна). */
+const DEPTH_MAX = 5
 
 function airAt(cave: CaveData, x: number, y: number): boolean {
   if (x < 0 || y < 0 || x >= cave.cols || y >= cave.rows) return false
   return cave.solid[y * cave.cols + x] === 0
 }
 
-/** Собрать data-массив (-1 = пусто, 0 = тайл) по предикату. */
-function dataWhere(cave: CaveData, pred: (x: number, y: number, i: number) => boolean): number[][] {
+/** Битмаска воздушных соседей тайла: N=1 E=2 S=4 W=8. */
+function edgeMask(cave: CaveData, x: number, y: number): number {
+  let m = 0
+  if (airAt(cave, x, y - 1)) m |= 1
+  if (airAt(cave, x + 1, y)) m |= 2
+  if (airAt(cave, x, y + 1)) m |= 4
+  if (airAt(cave, x - 1, y)) m |= 8
+  return m
+}
+
+/**
+ * BFS-дистанция каждой твёрдой клетки до ближайшего воздуха (1 = край).
+ * Мульти-источник из всех воздушных клеток — один проход O(N).
+ */
+function depthMap(cave: CaveData): Uint8Array {
+  const W = cave.cols
+  const H = cave.rows
+  const d = new Uint8Array(W * H)
+  const queue = new Int32Array(W * H)
+  let head = 0
+  let tail = 0
+  for (let i = 0; i < W * H; i++) {
+    if (cave.solid[i] === 0) {
+      d[i] = 0
+      queue[tail++] = i
+    }
+  }
+  while (head < tail) {
+    const idx = queue[head++]
+    const x = idx % W
+    const y = (idx - x) / W
+    const next = d[idx] + 1
+    if (next > DEPTH_MAX) continue
+    const nb: Array<[number, boolean]> = [
+      [idx - 1, x > 0],
+      [idx + 1, x < W - 1],
+      [idx - W, y > 0],
+      [idx + W, y < H - 1],
+    ]
+    for (const [j, ok] of nb) {
+      if (ok && cave.solid[j] === 1 && d[j] === 0) {
+        d[j] = next
+        queue[tail++] = j
+      }
+    }
+  }
+  return d
+}
+
+/** Собрать data-массив (-1 = пусто) по предикату, вычисляющему ID тайла. */
+function dataWhere(
+  cave: CaveData,
+  pred: (x: number, y: number, i: number) => number,
+): number[][] {
   const rows: number[][] = []
   for (let y = 0; y < cave.rows; y++) {
     const row: number[] = []
     for (let x = 0; x < cave.cols; x++) {
-      row.push(pred(x, y, y * cave.cols + x) ? 0 : -1)
+      const id = pred(x, y, y * cave.cols + x)
+      row.push(id)
     }
     rows.push(row)
   }
   return rows
 }
 
-/** Однослойный тайлмап из data-массива. collide — клетки 0 твёрдые. */
-function makeLayer(
+/** Однослойный тайлмап из data-массива по атласу tiles-cave. */
+function makeAtlasLayer(
   scene: Phaser.Scene,
-  texKey: string,
   data: number[][],
   collide: boolean,
   depth: number,
@@ -60,61 +118,65 @@ function makeLayer(
     tileWidth: 16,
     tileHeight: 16,
   })
-  const tileset = map.addTilesetImage(texKey, texKey, 16, 16, 0, 0)!
+  const tileset = map.addTilesetImage('tiles-cave', 'tiles-cave', 16, 16, 0, 0)!
   const layer = map.createLayer(0, tileset, 0, 0)!
   if (collide) layer.setCollisionByExclusion([-1])
   layer.setDepth(depth)
   return layer
 }
 
+/** Тайлмап декора по отдельной текстуре (как в шаге 4). */
+function makeLayer(
+  scene: Phaser.Scene,
+  texKey: string,
+  data: number[][],
+  depth: number,
+): Phaser.Tilemaps.TilemapLayer {
+  const map = scene.make.tilemap({
+    data,
+    tileWidth: 16,
+    tileHeight: 16,
+  })
+  const tileset = map.addTilesetImage(texKey, texKey, 16, 16, 0, 0)!
+  const layer = map.createLayer(0, tileset, 0, 0)!
+  layer.setDepth(depth)
+  return layer
+}
+
 export function buildCaveTilemap(scene: Phaser.Scene, cave: CaveData): CaveLayers {
-  // ── Камень: ядро стен (не край к воздуху), 4 варианта по хэшу ──────
-  // Все слои камня одинаково «твёрдые» — вариант чисто визуальный.
-  const solidLayers: Phaser.Tilemaps.TilemapLayer[] = []
-  let stoneMain: Phaser.Tilemaps.TilemapLayer | null = null
-  for (let v = 0; v < STONE_VARIANTS.length; v++) {
-    const tex = STONE_VARIANTS[v]
-    const layer = makeLayer(
-      scene, tex,
-      dataWhere(cave, (x, y, i) =>
-        cave.solid[i] === 1 && cave.ground[i] === 0 && variantHash(x, y) === v),
-      true, 0,
-    )
-    solidLayers.push(layer)
-    if (!stoneMain) stoneMain = layer
+  const depth = depthMap(cave)
+
+  // ── Край стены: автотайл по битмаске воздушных соседей ────────────────
+  const edgeLayer = makeAtlasLayer(
+    scene,
+    dataWhere(cave, (x, y, i) =>
+      cave.ground[i] === 1 ? EDGE_BASE + edgeMask(cave, x, y) : -1),
+    true, 1,
+  )
+
+  // ── Ядро стены: страты глубины (2 → near … 5+ → void) ────────────────
+  const stoneLayer = makeAtlasLayer(
+    scene,
+    dataWhere(cave, (_x, _y, i) => {
+      if (cave.solid[i] !== 1 || cave.ground[i] === 1) return -1
+      const band = Math.min(depth[i], DEPTH_MAX)
+      return band <= 2 ? STONE_NEAR : band === 3 ? STONE_MID : band === 4 ? STONE_DEEP : STONE_VOID
+    }),
+    true, 0,
+  )
+
+  // ── Декор (мох/кристалл/кость) — прозрачный фон, без коллизий ────────
+  const moss = makeLayer(scene, 'decor-moss',
+    dataWhere(cave, (_x, _y, i) => (cave.decor[i] === 1 ? 0 : -1)), 2)
+  makeLayer(scene, 'decor-crystal',
+    dataWhere(cave, (_x, _y, i) => (cave.decor[i] === 2 ? 0 : -1)), 2)
+  makeLayer(scene, 'decor-bone',
+    dataWhere(cave, (_x, _y, i) => (cave.decor[i] === 3 ? 0 : -1)), 2)
+
+  return {
+    stone: stoneLayer,
+    ground: edgeLayer,
+    solid: [edgeLayer, stoneLayer],
+    decor: moss,
   }
-
-  // ── Земля: край к воздуху — контекст решает текстуру (шаг 12) ──────
-  // top: воздух сверху (пол) · side: воздух слева/справа · bottom: воздух
-  // снизу (потолок) · inner (tile-dirt): воздух только по диагоналям.
-  let groundMain: Phaser.Tilemaps.TilemapLayer | null = null
-  const dirtContexts: Array<[string, (x: number, y: number) => boolean]> = [
-    ['tile-dirt-top', (x, y) => airAt(cave, x, y - 1)],
-    ['tile-dirt-bottom', (x, y) => airAt(cave, x, y + 1)],
-    ['tile-dirt-side', (x, y) => airAt(cave, x - 1, y) || airAt(cave, x + 1, y)],
-    // inner — всё остальное (диагональные края), оригинальный тайл.
-    ['tile-dirt', () => true],
-  ]
-  for (const [tex, applies] of dirtContexts) {
-    const layer = makeLayer(
-      scene, tex,
-      dataWhere(cave, (x, y, i) => {
-        if (cave.ground[i] !== 1) return false
-        // Первый подходящий контекст выигрывает (top > bottom > side > inner).
-        for (const [, test] of dirtContexts) {
-          if (test(x, y)) return test === applies
-        }
-        return false
-      }),
-      true, 1,
-    )
-    solidLayers.push(layer)
-    if (!groundMain) groundMain = layer
-  }
-
-  const moss = makeLayer(scene, 'decor-moss', dataWhere(cave, (_x, _y, i) => cave.decor[i] === 1), false, 2)
-  makeLayer(scene, 'decor-crystal', dataWhere(cave, (_x, _y, i) => cave.decor[i] === 2), false, 2)
-  makeLayer(scene, 'decor-bone', dataWhere(cave, (_x, _y, i) => cave.decor[i] === 3), false, 2)
-
-  return { stone: stoneMain!, ground: groundMain!, solid: solidLayers, decor: moss }
 }
