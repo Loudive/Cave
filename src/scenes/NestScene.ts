@@ -80,7 +80,7 @@ export class NestScene extends Phaser.Scene {
       ease: 'Sine.InOut',
     })
     // Талисман хаба — сам герой (правый нижний угол, не мешает узлам древа).
-    this.add.image(width - 62, height - 52, 'player').setScale(1.4).setAlpha(0.9).setDepth(DEPTH_PANEL)
+    this.add.image(width - 62, height - 52, 'hero-idle').setScale(1.4).setAlpha(0.9).setDepth(DEPTH_PANEL)
 
     // ── Шапка ──────────────────────────────────────────────────────────────
     this.add.text(cx, 26, 'Г Н Е З Д О', {

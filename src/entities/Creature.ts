@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { MOVEMENT } from '../config/movement'
 import { BALANCE } from '../config/balance'
+import { ANIMS } from '../config/anims'
 
 /**
  * Состояние существа — показывается в debug-оверлее (шаг 3).
@@ -94,8 +95,15 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
   private jumpCutDone = true
 
   // Шаг 11: кадры укуса/урона держатся до этого времени (мс сцены).
-  private biteTexUntil = -Infinity
   private hurtTexUntil = -Infinity
+
+  // Шаг 11 (переработка): сцена помечает — сейчас идёт поедание туши
+  // (Eating.isChewing): на земле вместо idle/run играется hero-eat.
+  public isEating = false
+
+  // Шаг 11 (переработка): играется одноразовая анимация смерти —
+  // состояние её не перебивает до скрытия спрайта сценой.
+  private deathPlaying = false
 
   // Направление активной стены: -1 левая, 1 правая, 0 нет.
   private wallDir = 0
@@ -108,7 +116,7 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
     y: number,
     keys: CreatureKeys,
   ) {
-    super(scene, x, y, 'player')
+    super(scene, x, y, 'hero-idle')
     scene.add.existing(this)
     scene.physics.add.existing(this)
 
@@ -154,7 +162,12 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
     this.updateVisuals(body)
   }
 
-  /** Шаг 11: кадр летучей мыши по состоянию + разворот по взгляду. */
+  /**
+   * Шаг 11 (переработка): полная анимационная цепочка. Приоритет:
+   * укус (играет до конца) > смерть > урон > поедание > планирование >
+   * прыжок/падение (статичный кадр раскрытых крыльев) > бег > idle.
+   * play(key, true) — не перезапускать уже играющую (анти-джиттер).
+   */
   private updateVisuals(body: Phaser.Physics.Arcade.Body): void {
     const now = this.scene.time.now
     this.setFlipX(this.facingDir < 0)
@@ -163,26 +176,45 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
     if (this.stateName === 'ground') this.setRotation(0)
     else this.setRotation(Phaser.Math.Clamp(body.velocity.y / 1200, -0.12, 0.22))
 
-    // Приоритет кадров: укус > урон > состояние передвижения.
-    if (now < this.biteTexUntil) {
-      this.setTexture('hero-bite')
-    } else if (now < this.hurtTexUntil) {
-      this.setTexture('hero-hurt')
+    // Одноразовые анимации не перебиваются состоянием: укус играет
+    // от первого кадра замаха до конца (≈ windup+active из balance.json),
+    // смерть — до скрытия спрайта.
+    if (this.deathPlaying) return
+    if (this.anims.currentAnim?.key === 'hero-bite' && this.anims.isPlaying) return
+
+    if (now < this.hurtTexUntil) {
+      this.play('hero-hurt', true)
+    } else if (this.isEating && this.stateName === 'ground') {
+      this.play('hero-eat', true)
     } else if (this.stateName === 'glide') {
-      this.setTexture('hero-glide')
-      if (!this.anims.isPlaying || this.anims.currentAnim?.key !== 'hero-glide') this.play('hero-glide')
-    } else if (this.stateName === 'jump' || this.stateName === 'fall') {
-      // В прыжке/падении крылья раскрыты (кадр полёта без маха).
-      this.setTexture('hero-glide')
+      this.play('hero-glide', true)
+    } else if (
+      this.stateName === 'jump'
+      || this.stateName === 'fall'
+      || this.stateName === 'wall-slide'
+      || this.stateName === 'wall-lock'
+    ) {
+      // В воздухе крылья раскрыты (статичный кадр полёта без маха).
       this.anims.stop()
-      this.setFrame(3)
+      this.setTexture('hero-glide')
+      this.setFrame(ANIMS.airborneFrame)
     } else if (this.stateName === 'ground' && Math.abs(body.velocity.x) > 20) {
-      this.setTexture('hero-run')
-      if (!this.anims.isPlaying || this.anims.currentAnim?.key !== 'hero-run') this.play('hero-run')
+      this.play('hero-run', true)
     } else {
-      this.setTexture('player')
-      this.anims.stop()
+      this.play('hero-idle', true)
     }
+  }
+
+  /**
+   * Шаг 11 (переработка): смерть — одноразовая анимация hero-death
+   * (6 кадров, кадр замирает на последнем). Сцена скрывает спрайт через
+   * ANIMS.death.hideAfterMs и оставляет кровавые декали.
+   */
+  playDeathVisual(): void {
+    this.deathPlaying = true
+    this.anims.stop()
+    this.setRotation(0)
+    this.play('hero-death')
   }
 
   /** Текущее состояние — для debug-оверлея. */
@@ -338,9 +370,10 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
 
   // ── Визуальные хуки шага 6 (укус, урон, чавканье) ─────────────────────
 
-  /** Замах: существо приседает и сжимается — телеграф укуса. */
+  /** Замах: анимация укуса с первого кадра + присед-телеграф твином. */
   biteWindupVisual(): void {
-    this.biteTexUntil = -Infinity
+    // Кадры 0–1 (18 к/с ≈ biteWindupMs) — замах; 2–3 — выпад.
+    this.play('hero-bite')
     this.scene.tweens.killTweensOf(this)
     this.scene.tweens.add({
       targets: this,
@@ -353,7 +386,6 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
 
   /** Выпад: разжатие с перерастяжением — бросок в жертву. */
   biteActiveVisual(): void {
-    this.biteTexUntil = this.scene.time.now + BALANCE.player.biteActiveMs + 60
     this.scene.tweens.killTweensOf(this)
     this.scene.tweens.add({
       targets: this,

@@ -1,0 +1,7 @@
+Sprite sheet: 4 consecutive frames extracted from a single video recording of ONE flying vampire bat monster, like a video freeze-frame breakdown. Because all frames come from the same video, the creature has IDENTICAL body size, IDENTICAL proportions, IDENTICAL strict side profile view facing right in every frame — only the wing angle changes between frames. No camera movement, no perspective change, no zoom.
+
+Keep the EXACT same character design as the reference: near-black charcoal fur #0B0B10 with subtle violet sheen, desaturated teal bioluminescent wing membranes #58E6C8, blood-red inner mouth and glowing red eyes #E23A4E, long snout with needle fangs, sharp claws.
+
+4 frames in ONE horizontal row, left to right: frame 1 - wings raised fully UP; frame 2 - wings spread horizontal; frame 3 - wings swept DOWN in power stroke; frame 4 - wings mid-fold recovery. Body core (torso, head, legs) pixel-identical across all frames, floating at the same height.
+
+Dark fantasy cave monster, bioluminescent, menacing, feral, NOT cute. Crisp pixel art, clean silhouettes, game asset. Flat solid magenta background #FF00FF. No text, no grid, no numbers, no watermark, no border.

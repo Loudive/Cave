@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import { ASSETS, assetUrl, HERO_FRAME } from '../config/assets'
+import { ANIMS } from '../config/anims'
 import { installGeneratedAudio } from '../systems/Audio'
 
 /**
@@ -27,16 +28,15 @@ export class BootScene extends Phaser.Scene {
       this.load.image(key, assetUrl(file))
     }
 
-    // Шаг 11: герой — мышь-планер. Листы (бег ×4, планирование ×2)
-    // грузятся спрайтлистами с кадрами 68×46.
-    this.load.spritesheet('hero-run', assetUrl('hero-run.png'), {
-      frameWidth: HERO_FRAME.w,
-      frameHeight: HERO_FRAME.h,
-    })
-    this.load.spritesheet('hero-glide', assetUrl('hero-glide.png'), {
-      frameWidth: HERO_FRAME.w,
-      frameHeight: HERO_FRAME.h,
-    })
+    // Шаг 11 (переработка): герой полностью анимирован — 7 листов
+    // (кадры 68×46, нарезка scripts/process-hero.mjs, сырьё design/raw/v3).
+    // Параметры — src/config/anims.json (ноль магических чисел в коде).
+    for (const name of ['idle', 'run', 'glide', 'bite', 'eat', 'hurt', 'death'] as const) {
+      this.load.spritesheet(`hero-${name}`, assetUrl(`hero-${name}.png`), {
+        frameWidth: HERO_FRAME.w,
+        frameHeight: HERO_FRAME.h,
+      })
+    }
 
     // Шаг 10: SFX + музыка синтезированы в браузере — ставим в кэш напрямую
     // (декодирование в фоне, без участия загрузчика).
@@ -44,23 +44,29 @@ export class BootScene extends Phaser.Scene {
   }
 
   create(): void {
-    // Шаг 11: анимации героя (глобальные — создаются один раз).
-    if (!this.anims.exists('hero-run')) {
+    // Шаг 11 (переработка): анимации героя (глобальные — создаются один раз).
+    // Параметры (кадры/частоты/порядок) — ANIMS из src/config/anims.json.
+    const defs = [
+      'idle',
+      'run',
+      'glide',
+      'bite',
+      'eat',
+      'hurt',
+      'death',
+    ] as const
+    for (const name of defs) {
+      const key = `hero-${name}`
+      if (this.anims.exists(key)) continue
+      const c = ANIMS[name]
+      const frames = c.order
+        ? c.order.map((n) => ({ key, frame: n }))
+        : this.anims.generateFrameNumbers(key, { start: 0, end: c.frames - 1 })
       this.anims.create({
-        key: 'hero-run',
-        frames: this.anims.generateFrameNumbers('hero-run', { start: 0, end: 3 }),
-        frameRate: 12,
-        repeat: -1,
-      })
-    }
-    if (!this.anims.exists('hero-glide')) {
-      this.anims.create({
-        key: 'hero-glide',
-        // Лист Nano Banana: 0 — крылья по середине, 1 — вверх,
-        // 2 — вниз, 3 — вперёд. Полный мах: вверх → вперёд → вниз → откат.
-        frames: this.anims.generateFrameNumbers('hero-glide', { frames: [1, 3, 2, 0] }),
-        frameRate: 9,
-        repeat: -1,
+        key,
+        frames,
+        frameRate: c.fps,
+        repeat: c.loop ? -1 : 0,
       })
     }
 

@@ -1,0 +1,7 @@
+Wide horizontal film strip sprite sheet: a single row of exactly 6 small sprites of the same vampire bat monster from the reference image, marching left to right like frames on a 35mm film strip. Each creature occupies only ONE SIXTH of the image width — small sprites, NOT large. Never a grid, never two rows, never stacked — one thin horizontal strip only.
+
+Keep the EXACT same character design as the reference: near-black charcoal fur #0B0B10 with subtle violet sheen, desaturated teal bioluminescent wing membranes #58E6C8, blood-red inner mouth and glowing red eyes #E23A4E, long snout with needle fangs, sharp claws. Side view facing right.
+
+Full run animation cycle, 6 phases of a feral quadruped gallop read left to right: frame 1 - body stretched forward, front claws reaching; frame 2 - front paws landing, back legs pushing off; frame 3 - full extension stretch, body airborne low; frame 4 - back legs kicking up behind; frame 5 - body compressed under landing; frame 6 - push-off stride. All 6 creatures IDENTICAL in size and proportions, evenly spaced, feet on the SAME ground baseline.
+
+Dark fantasy cave monster, bioluminescent, menacing, feral, NOT cute, NOT cartoonish. Crisp pixel art style, clean readable silhouettes, game asset. Flat solid magenta background #FF00FF everywhere. No text, no grid, no frame numbers, no watermark, no border, no dividing lines.

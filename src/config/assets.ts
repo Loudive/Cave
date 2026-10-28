@@ -17,12 +17,10 @@ export const ASSETS: AssetEntry[] = [
   { key: 'glow-purple', file: 'glow-purple.png' },
   { key: 'glow-red', file: 'glow-red.png' },
   { key: 'glow-acid', file: 'glow-acid.png' },
-  // Спрайты.
-  { key: 'player', file: 'hero-idle.png' },
-  // Шаг 11: герой — мышь-планер (нейро-спрайты, scripts/process-hero.mjs).
-  // Листы hero-run/hero-glide грузятся спрайтлистами в BootScene (кадры 68×46).
-  { key: 'hero-bite', file: 'hero-bite.png' },
-  { key: 'hero-hurt', file: 'hero-hurt.png' },
+  // Спрайты. Шаг 11 (переработка): герой полностью анимирован — 7 листов
+  // (idle/run/glide/bite/eat/hurt/death) грузятся спрайтлистами в BootScene
+  // с кадрами 68×46 (scripts/process-hero.mjs, сырьё design/raw/v3).
+  // Текстуры 'hero-*' здесь НЕ перечислены — см. BootScene.preload.
   { key: 'rock', file: 'rock.png' },
   { key: 'mushroom', file: 'mushroom.png' },
   { key: 'spore', file: 'spore.png' },

@@ -13,6 +13,7 @@ import { Vfx } from '../systems/Vfx'
 import { Companion } from '../entities/Companion'
 import { GENES, loadGeneSave, saveGeneSave, grantGene, type GeneSave, type GeneDef } from '../config/genes'
 import { NEST } from '../config/nest'
+import { ANIMS } from '../config/anims'
 import { applyPerks, emptyRunPerks, type RunPerks } from '../systems/NestPerks'
 import { loadNestSave, updateNestSave, recordBestiary, collectGenome, type NestSave } from '../systems/NestSave'
 import { DebugOverlay } from '../systems/DebugOverlay'
@@ -551,6 +552,9 @@ export class CaveScene extends Phaser.Scene {
         this.updateGenomes(time)
 
         this.eating.update(time, this.creature.x, this.creature.y)
+        // Шаг 11 (переработка): существо жуёт тушу — на земле играет
+        // анимация hero-eat вместо idle/run (см. Creature.updateVisuals).
+        this.creature.isEating = this.eating.isChewing
         this.vitals.update(delta)
         this.blood.update(this.creature.x, this.creature.y)
         this.mutations.update(this.creature.x, this.creature.y)
@@ -833,7 +837,16 @@ export class CaveScene extends Phaser.Scene {
     this.blood.spawnClots(this.creature.x, this.creature.y, 3)
     this.cameras.main.shake(d.fadeMs, BALANCE.hit.killShakePx / this.cameras.main.width)
     this.cameras.main.flash(260, 226, 58, 78)
-    this.creature.setVisible(false)
+    // Шаг 11 (переработка): вместо мгновенного исчезновения — анимация
+    // смерти (6 кадров, последний замирает), спрайт скрывается через
+    // ANIMS.death.hideAfterMs; физтело гасим сразу, чтобы труп не сползал.
+    this.creature.playDeathVisual()
+    const corpse = this.creature.body as Phaser.Physics.Arcade.Body
+    corpse.velocity.set(0, 0)
+    corpse.enable = false
+    this.time.delayedCall(ANIMS.death.hideAfterMs ?? 600, () => {
+      this.creature.setVisible(false)
+    })
     this.creatureGlow.setAlpha(0)
     this.blood.decal(this.creature.x, this.creature.y + 8, 2.6)
 
