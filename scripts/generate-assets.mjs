@@ -194,6 +194,65 @@ class Canvas {
     }
   }
 
+  /** Шаг 22: органичная клякса — эллипс с шумовым смещением кромки
+   *  (никаких roundRect-валунов: «неизвестные тёмные фигуры»). */
+  organicBlob(cx, cy, rx, ry, color, a, seed, opts = {}) {
+    const harm = blobHarmonics(seed, opts.amp ?? 0.1, opts.harmN ?? 4)
+    const maxX = Math.ceil(rx * 1.4)
+    const maxY = Math.ceil(ry * 1.4)
+    for (let y = cy - maxY; y <= cy + maxY; y++) {
+      for (let x = cx - maxX; x <= cx + maxX; x++) {
+        const r = Math.hypot(x - cx, y - cy)
+        if (r > Math.max(rx, ry) * 1.3) continue
+        const th = Math.atan2(y - cy, x - cx)
+        if (r <= blobRe(th, rx, ry) * blobR(th, harm)) this.px(x, y, color, a)
+      }
+    }
+  }
+
+  /** Полоса ВДОЛЬ силуэта (rim-light сверху / AO снизу): от кромки внутрь
+   *  по радиусу; гармонии по тому же сиду, что у кляксы — кромка совпадает. */
+  edgeBand(cx, cy, rx, ry, seed, opts) {
+    const { color, a, from, to, depth = 2, amp = 0.1, harmN = 4 } = opts
+    const harm = blobHarmonics(seed, amp, harmN)
+    for (let d = 0; d < 720; d++) {
+      const th = (d / 720) * Math.PI * 2
+      if (th < from || th > to) continue
+      const R = blobRe(th, rx, ry) * blobR(th, harm)
+      for (let k = 0; k < depth; k++) {
+        const rr = R - k - 1
+        this.px(Math.round(cx + rr * Math.cos(th)), Math.round(cy + rr * Math.sin(th)), color, a)
+      }
+    }
+  }
+
+  /** Настоящий скол: прямое обнуление альфы внутри круга у кромки. */
+  cut(cx, cy, r) {
+    for (let y = Math.floor(cy - r); y <= cy + r; y++) {
+      for (let x = Math.floor(cx - r); x <= cx + r; x++) {
+        if (x < 0 || y < 0 || x >= this.w || y >= this.h) continue
+        if (Math.hypot(x - cx, y - cy) <= r) this.data[(y * this.w + x) * 4 + 3] = 0
+      }
+    }
+  }
+
+  /** Зерно ТОЛЬКО внутри силуэта (клип по альфе — никакой крошки вокруг). */
+  grainClipped(seed, n, cols) {
+    const rnd = mulberry32(seed)
+    for (let i = 0; i < n; i++) {
+      const x = 2 + Math.floor(rnd() * (this.w - 4))
+      const y = 2 + Math.floor(rnd() * (this.h - 4))
+      if (this.data[(y * this.w + x) * 4 + 3] < 200) continue
+      const col = cols[Math.floor(rnd() * cols.length)]
+      const w = 1 + Math.floor(rnd() * 4)
+      for (let dx = 0; dx < w; dx++) {
+        const xx = Math.min(this.w - 1, x + dx)
+        if (this.data[(y * this.w + xx) * 4 + 3] < 200) continue
+        this.px(xx, y, col, Math.round((0.2 + rnd() * 0.4) * 255))
+      }
+    }
+  }
+
   save(name) {
     // Шаг 14: хромакей-аудит — ни один ассет не имеет права содержать
     // неоновые цвета (зелёный/пурпурный хромакей). Если генератор снова
@@ -1373,66 +1432,73 @@ function gradientFill(c, top, bottom) {
   c.save('silhouette-near.png')
 }
 
-/** Пять видов скал (шаг 12 — «сами скалы разных видов»):
- *  a — округлый валун с rim-light сверху и AO снизу;
- *  b — угловатая глыба со сколотым краем;
- *  c — россыпь мелких камней;
- *  d — высокий сталагмит-шпиль;
- *  e — треснувшая плита со светящейся жилой (редкая, ставит свечение). */
-function rockBase(c, seed, opts) {
+/** Пять видов скал (шаг 12; шаг 22 — ОРГАНИЧНЫЕ силуэты): roundRect-валуны
+ *  читались как «неизвестные тёмные фигуры/контейнеры» (жалоба игрока) —
+ *  кромка теперь эллипс с шумовым смещением (blobHarmonics), rim-light и AO
+ *  идут ПО силуэту (edgeBand), зерно клипается в форму, сколы глыбы —
+ *  настоящие вырезы альфы (cut).
+ *  a — округлый валун; b — угловатая глыба со сколами; c — россыпь;
+ *  d — сталагмит-шпиль (зубчатый конус органичен — не трогаем);
+ *  e — плита со светящейся жилой (редкая, ставит свечение). */
+function blobHarmonics(seed, amp, n) {
   const rnd = mulberry32(seed)
-  // Rim-light: верхняя кромка ловит свет (2px полоса по верхнему краю).
-  c.rect(opts.x0 + 2, opts.y0, opts.x1 - 2, opts.y0 + 1, [0x4a, 0x4a, 0x62], 190)
-  // AO: нижние углы темнее — камень «сидит» в тени.
-  c.rect(opts.x0, opts.y1 - 3, opts.x1, opts.y1, PAL.ink, 120)
-  // Слоистое зерно.
-  for (let i = 0; i < opts.grain; i++) {
-    const x = opts.x0 + 2 + Math.floor(rnd() * (opts.x1 - opts.x0 - 4))
-    const yy = opts.y0 + 2 + Math.floor(rnd() * (opts.y1 - opts.y0 - 4))
-    const w = 1 + Math.floor(rnd() * 4)
-    c.rect(x, yy, x + w, yy + 1, rnd() > 0.5 ? PAL.rockLight : PAL.rockDark, Math.round((0.2 + rnd() * 0.4) * 255))
+  const out = []
+  for (let h = 0; h < n; h++) {
+    out.push({ amp: amp * (1 - h * 0.22), ph: rnd() * Math.PI * 2, freq: 2 + h * 2 + Math.floor(rnd() * 2) })
   }
+  return out
 }
-// a — валун.
+/** Радиус-множитель кромки в направлении θ (детерминирован сидом). */
+function blobR(th, harm) {
+  let R = 1
+  for (const h of harm) R += h.amp * Math.sin(th * h.freq + h.ph)
+  return R
+}
+/** Радиус эллипса (rx, ry) в направлении θ. */
+function blobRe(th, rx, ry) {
+  return (rx * ry) / Math.hypot(rx * Math.sin(th), ry * Math.cos(th))
+}
+// a — валун: органичный силуэт + страта + rim/AO по кромке.
 {
   const c = new Canvas(96, 64)
-  c.roundRect(2, 8, 93, 63, 14, PAL.rockDark, 255)
-  c.roundRect(10, 14, 85, 56, 10, PAL.rockMid, 255)
-  rockBase(c, 121, { x0: 10, y0: 14, x1: 85, y1: 56, grain: 90 })
+  c.organicBlob(48, 40, 44, 23, PAL.rockDark, 255, 121, { amp: 0.1 })
+  c.organicBlob(48, 43, 35, 17, PAL.rockMid, 255, 122, { amp: 0.13 })
+  c.edgeBand(48, 40, 44, 23, 121, { color: [0x4a, 0x4a, 0x62], a: 190, from: Math.PI, to: Math.PI * 2, depth: 2, amp: 0.1 })
+  c.edgeBand(48, 40, 44, 23, 121, { color: PAL.ink, a: 120, from: 0.3, to: Math.PI - 0.3, depth: 3, amp: 0.1 })
+  c.grainClipped(123, 90, [PAL.rockLight, PAL.rockDark])
   c.save('rock-a.png')
 }
-// b — угловатая глыба: стопка прямоугольников со сколами.
+// b — угловатая глыба: низкочастотный жирный wobble + настоящие сколы кромки.
 {
   const c = new Canvas(88, 72)
-  const rnd = mulberry32(122)
-  c.rect(6, 18, 78, 70, PAL.rockDark, 255)
-  c.rect(14, 10, 70, 62, PAL.rockMid, 255)
-  c.rect(24, 4, 58, 54, PAL.rockMid, 255)
-  // Сколотые зубцы по левой кромке.
-  for (let yy = 12; yy < 66; yy += 7) {
-    const jx = 12 + Math.floor(rnd() * 5)
-    c.rect(jx, yy, 14, yy + 3 + Math.floor(rnd() * 4), PAL.rockDark, 255)
+  c.organicBlob(44, 42, 38, 28, PAL.rockDark, 255, 124, { amp: 0.12, harmN: 3 })
+  c.organicBlob(44, 46, 29, 20, PAL.rockMid, 255, 125, { amp: 0.15, harmN: 3 })
+  const rnd = mulberry32(126)
+  for (let i = 0; i < 5; i++) {
+    const th = rnd() * Math.PI * 2
+    c.cut(44 + 36 * Math.cos(th), 42 + 26 * Math.sin(th), 4 + Math.floor(rnd() * 4))
   }
-  rockBase(c, 123, { x0: 14, y0: 10, x1: 70, y1: 62, grain: 70 })
+  c.edgeBand(44, 42, 38, 28, 124, { color: [0x4a, 0x4a, 0x62], a: 190, from: Math.PI, to: Math.PI * 2, depth: 2, amp: 0.12, harmN: 3 })
+  c.edgeBand(44, 42, 38, 28, 124, { color: PAL.ink, a: 120, from: 0.3, to: Math.PI - 0.3, depth: 3, amp: 0.12, harmN: 3 })
+  c.grainClipped(127, 70, [PAL.rockLight, PAL.rockDark])
   c.save('rock-b.png')
 }
-// c — россыпь камней: 4 мелких валуна разного размера.
+// c — россыпь: 4 органичных камушка разного калибра.
 {
   const c = new Canvas(80, 40)
-  const rnd = mulberry32(124)
   const blobs = [
-    { x0: 4, y0: 16, x1: 30, y1: 38, r: 8 },
-    { x0: 26, y0: 8, x1: 56, y1: 36, r: 9 },
-    { x0: 50, y0: 20, x1: 76, y1: 38, r: 7 },
-    { x0: 14, y0: 26, x1: 34, y1: 39, r: 5 },
+    { cx: 17, cy: 28, rx: 13, ry: 10, seed: 131, col: PAL.rockMid },
+    { cx: 41, cy: 22, rx: 15, ry: 13, seed: 132, col: PAL.rockDark },
+    { cx: 63, cy: 29, rx: 12, ry: 9, seed: 133, col: PAL.rockMid },
+    { cx: 25, cy: 33, rx: 8, ry: 6, seed: 134, col: PAL.rockDark },
   ]
   for (const b of blobs) {
-    c.roundRect(b.x0, b.y0, b.x1, b.y1, b.r, rnd() > 0.5 ? PAL.rockDark : PAL.rockMid, 255)
-    c.rect(b.x0 + 1, b.y0, b.x1 - 1, b.y0 + 1, [0x4a, 0x4a, 0x62], 170)
+    c.organicBlob(b.cx, b.cy, b.rx, b.ry, b.col, 255, b.seed, { amp: 0.14 })
+    c.edgeBand(b.cx, b.cy, b.rx, b.ry, b.seed, { color: [0x4a, 0x4a, 0x62], a: 170, from: Math.PI, to: Math.PI * 2, depth: 1, amp: 0.14 })
   }
   c.save('rock-c.png')
 }
-// d — сталагмит-шпиль: высокий конус с зубчатым краем.
+// d — сталагмит-шпиль: высокий конус с зубчатым краем (органичен — без изменений).
 {
   const c = new Canvas(48, 104)
   const rnd = mulberry32(125)
@@ -1446,26 +1512,28 @@ function rockBase(c, seed, opts) {
   c.rect(cx - 4, 2, cx + 4, 4, [0x4a, 0x4a, 0x62], 170)
   c.save('rock-d.png')
 }
-// e — плита со светящейся жилой (редкая: ~7% скал, ставит glow-близнец).
+// e — плита со светящейся жилой: приплюснутый органичный пласт (редкая: ~7%).
 {
   const c = new Canvas(96, 64)
-  c.roundRect(2, 10, 93, 63, 10, PAL.rockDark, 255)
-  c.roundRect(8, 16, 88, 58, 8, [0x1e, 0x1e, 0x2e], 255)
+  c.organicBlob(48, 38, 45, 24, PAL.rockDark, 255, 141, { amp: 0.07, harmN: 3 })
+  c.organicBlob(48, 40, 38, 18, [0x1e, 0x1e, 0x2e], 255, 142, { amp: 0.09, harmN: 3 })
+  c.edgeBand(48, 38, 45, 24, 141, { color: [0x4a, 0x4a, 0x62], a: 170, from: Math.PI, to: Math.PI * 2, depth: 1, amp: 0.07, harmN: 3 })
+  c.grainClipped(143, 60, [PAL.rockMid])
+  // Жила: ломаная биолюм-циановая линия по поверхности пласта (клип в силуэт).
   const rnd = mulberry32(126)
-  for (let i = 0; i < 60; i++) {
-    const x = 10 + Math.floor(rnd() * 78)
-    const yy = 18 + Math.floor(rnd() * 36)
-    c.rect(x, yy, x + 3, yy + 1, PAL.rockMid, Math.round((0.2 + rnd() * 0.35) * 255))
+  const vein = (x, y, col, a) => {
+    if (x < 0 || y < 0 || x >= c.w || y >= c.h) return
+    if (c.data[(y * c.w + x) * 4 + 3] < 60) return
+    c.px(x, y, col, a)
   }
-  // Жила: ломаная линия биолюм-циана с ядром посветлее.
   let vx = 20
   let vy = 56
-  for (let s = 0; s < 26; s++) {
+  for (let st = 0; st < 26; st++) {
     vx += 2 + Math.floor(rnd() * 3)
     vy -= 1 + Math.floor(rnd() * 2)
-    c.px(vx, vy, PAL.cyan, 235)
-    c.px(vx, vy + 1, [0x2a, 0x6e, 0x62], 190)
-    if (rnd() > 0.6) c.px(vx + 1, vy, PAL.cyan, 140)
+    vein(vx, vy, PAL.cyan, 235)
+    vein(vx, vy + 1, [0x2a, 0x6e, 0x62], 190)
+    if (rnd() > 0.6) vein(vx + 1, vy, PAL.cyan, 140)
   }
   c.save('rock-e.png')
 }
