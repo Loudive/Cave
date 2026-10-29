@@ -50,7 +50,8 @@ export class Spores {
     return this.pool.filter((b) => b.alive).length
   }
 
-  /** Жнец стреляет: веер из attack.shots в сторону цели. */
+  /** Жнец стреляет: веер из attack.shots в сторону цели.
+   *  Шаг 24: урон масштабируется глубинным множителем стрелка (depthScale). */
   fireFrom(attacker: Enemy, tx: number, ty: number): void {
     const atk = attacker.species.attack
     if (!atk || atk.type !== 'shoot') return
@@ -64,7 +65,7 @@ export class Spores {
         attacker.x, attacker.y - 6,
         Math.cos(angle) * atk.shotSpeed,
         Math.sin(angle) * atk.shotSpeed,
-        atk.projGravity, atk.damage,
+        atk.projGravity, Math.round(atk.damage * attacker.dmgMult),
       )
     }
     // Выстрел виден даже сквозь тьму: пшик спор у дула.

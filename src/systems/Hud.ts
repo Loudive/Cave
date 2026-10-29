@@ -53,6 +53,8 @@ export class Hud {
     private vitals: Vitals,
     private mutations: Mutations,
     private onBiteButton: () => void,
+    /** Шаг 24: кнопка сильного удара (мобилки). */
+    private onHeavyButton: () => void,
   ) {
     this.gfx = scene.add.graphics().setScrollFactor(0).setDepth(DEPTH_HUD)
     // Рамки слотов статичны — отдельный Graphics, рисуется один раз.
@@ -98,16 +100,18 @@ export class Hud {
 
     if (this.isTouch()) this.buildBiteButton()
   }
-
   private isTouch(): boolean {
     return this.scene.sys.game.device.input.touch && window.matchMedia('(pointer: coarse)').matches
   }
 
-  /** Кнопка укуса (мобилки): справа снизу, большой тач-таргет ≥44px. */
+  /** Кнопка укуса (мобилки): справа снизу, большой тач-таргет ≥44px.
+   *  Шаг 24: левее — вторая кнопка «УДАР» (сильный удар); в падении
+   *  кнопка укуса сама становится пике (Combat решает по vy). */
   private buildBiteButton(): void {
     // Шаг 23: тач-кнопка — в дизайн-координатах (экран-слой uiRoot × k).
     const w = DESIGN_W
     const h = DESIGN_H
+    // Укус: большой красный, под большим пальцем.
     const r = 34
     const circle = this.scene.add.circle(w - 52, h - 60, r, 0xe23a4e, 0.22)
       .setScrollFactor(0)
@@ -128,6 +132,33 @@ export class Hud {
       this.onBiteButton()
       this.scene.tweens.add({
         targets: [circle, label],
+        scale: 0.88,
+        duration: 70,
+        yoyo: true,
+      })
+    })
+
+    // Сильный удар: янтарный, левее и чуть выше.
+    const hx = w - 128
+    const hy = h - 46
+    const hr = 27
+    const heavy = this.scene.add.circle(hx, hy, hr, 0xe8a34f, 0.2)
+      .setScrollFactor(0)
+      .setDepth(DEPTH_HUD)
+      .setStrokeStyle(2, 0xe8a34f, 0.6)
+    const heavyLabel = this.scene.add.text(hx, hy, 'УДАР', {
+      fontFamily: 'monospace',
+      fontSize: '11px',
+      fontStyle: 'bold',
+      color: '#E8A34F',
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH_HUD + 1)
+    uiAttach(this.scene, heavy)
+    uiAttach(this.scene, heavyLabel)
+    heavy.setInteractive({ useHandCursor: true })
+    heavy.on(Phaser.Input.Events.POINTER_DOWN, () => {
+      this.onHeavyButton()
+      this.scene.tweens.add({
+        targets: [heavy, heavyLabel],
         scale: 0.88,
         duration: 70,
         yoyo: true,

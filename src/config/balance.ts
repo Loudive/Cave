@@ -129,8 +129,49 @@ export interface TwitchBalance {
   maxMs: number
 }
 
+/** Шаг 24: СИЛЬНЫЙ УДАР (K) — долгий замах, урон, стан, полукруг брони. */
+export interface HeavyBalance {
+  windupMs: number
+  activeMs: number
+  cooldownMs: number
+  damageMult: number
+  rangeMult: number
+  arcDeg: number
+  knockbackMult: number
+  stunMs: number
+  /** Какая доля физической брони игнорируется (0.6 — панцирь режется до 40%). */
+  armorPierce: number
+  lungeSpeed: number
+  hitstopMs: number
+  shakePx: number
+  shakeMs: number
+}
+
+/** Шаг 24: УДАР С ПОЛЁТА (J в воздухе) — диагональный пике-наскок. */
+export interface DiveBalance {
+  /** Вход: вертикальная скорость падения не меньше этого. */
+  minVy: number
+  vx: number
+  vy: number
+  damageMult: number
+  hitRadius: number
+  knockback: number
+  /** Подброс охотника после попадания (цепочка насков). */
+  bounceVy: number
+  /** Страховка от бесконечного пике (мс). */
+  maxMs: number
+  shockRadius: number
+  shockDamageMult: number
+  shockKnockback: number
+  hitstopMs: number
+  shakePx: number
+  shakeMs: number
+}
+
 export interface BalanceConfig {
   player: PlayerBalance
+  heavy: HeavyBalance
+  dive: DiveBalance
   hunger: HungerBalance
   growth: GrowthBalance
   eating: EatingBalance

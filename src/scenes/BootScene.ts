@@ -50,7 +50,8 @@ export class BootScene extends Phaser.Scene {
     // scripts/process-mobs.mjs, нейро-генерация scripts/gen-mobs.mjs).
     // ТЕКСТУРЫ 'mob-*' НЕ в ASSETS-манифесте — они грузятся ЗДЕСЬ
     // спрайтлистами (та же сетка кадров, что hero-*).
-    for (const id of ['slug', 'bat', 'reaper', 'bloodsucker', 'shell', 'lava'] as const) {
+    // Шаг 24: + два хищника глубины (сталкер, пожиратель) — gen-step24.mjs.
+    for (const id of ['slug', 'bat', 'reaper', 'bloodsucker', 'shell', 'lava', 'stalker', 'devourer'] as const) {
       this.load.spritesheet(`mob-${id}`, assetUrl(`mob-${id}.png`), {
         frameWidth: HERO_FRAME.w,
         frameHeight: HERO_FRAME.h,
@@ -90,7 +91,9 @@ export class BootScene extends Phaser.Scene {
     }
 
     // Шаг 20: walk-анимации мобов (4 кадра, fps из enemies.json species.anim).
-    for (const id of ['slug', 'bat', 'reaper', 'bloodsucker', 'shell', 'lava'] as const) {
+    // Шаг 24: список видов — единый источник (enemies.json), чтобы новые
+    // хищники подключались без правки кода загрузчика.
+    for (const id of ['slug', 'bat', 'reaper', 'bloodsucker', 'shell', 'lava', 'stalker', 'devourer'] as const) {
       const key = `mob-${id}-walk`
       if (this.anims.exists(key)) continue
       const a = ENEMIES.species[id].anim

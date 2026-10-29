@@ -1,5 +1,15 @@
 import Phaser from 'phaser'
-import { NEST, NEST_NODES, NEST_TOTAL_COST, type NestBranch, type NestNode } from '../config/nest'
+import {
+  NEST,
+  NEST_TOTAL_FULL,
+  nestSpent,
+  nodeRanks,
+  nodeRankCost,
+  nodeIcon,
+  BRANCH_ICON,
+  type NestBranch,
+  type NestNode,
+} from '../config/nest'
 import { ENEMIES } from '../config/enemies'
 import { GENES } from '../config/genes'
 import {
@@ -14,17 +24,18 @@ import { hexInt } from '../config/light'
 
 /**
  * NestScene — шаг 11: хаб мета-прогрессии «Гнездо».
- *
- * Экран между забегами: сюда приносится Эссенция (гайд), здесь тратится
- * в древо навыков единственного героя (5 веток × 15 узлов, узлы трёх
- * типов: статы / способности / ключевые мутации передвижения), листается
- * бестиарий съеденного, коллекция геномов с редкостями и накопительная
- * статистика. Всё живёт в versioned localStorage (NestSave).
+ * Шаг 24: РЕСТИЛИЗАЦИЯ древа по заказу игрока («стилизуй древо по норм
+ * арты, иконки сгенерируй») + ПЕРЕРАБОТАННАЯ ЭКОНОМИКА:
+ *  • узлы — иконки (assets/icon-*.png, scripts/process-icons.mjs),
+ *    рамка формой кодирует тип (стат — скруглённый квадрат, способность —
+ *    круг, ключевая мутация — шестиугольник), ветки связаны линиями;
+ *  • stat-узлы качаются до 3 РАНГОВ (эффект складывается, ранг дороже
+ *    в rankCostMult раз) — пипсы под иконкой;
+ *  • тир 3+ требует tierReqNodes узлов предыдущего тира (строже);
+ *  • прогресс древа — в Эссенции: «вложено X◈ из Y◈» (Y ≈ 8600).
  *
  * Ветки открываются рекордом глубины: недоступная колонка приглушена
- * с подписью «откроется на N м» — видно, КУДА стремиться (читаемость).
- * Покупка в два тапа (выбор → подтверждение) — страховка на таче.
- * Вся смена содержимого вкладок идёт через tabLayer — сцена не «зарастает».
+ * с подписью «откроется на N м». Покупка в два тапа — страховка на таче.
  */
 const DEPTH_BG = 0
 const DEPTH_PANEL = 1
@@ -35,7 +46,13 @@ const COL_DIM = '#8A8894'
 const COL_FAINT = '#5A5866'
 const COL_ACCENT = '#58E6C8'
 
+/** Клетка узла древа (шаг 24): иконка 40×40 + пипсы рангов внутри. */
+const NODE_CELL = 40
+
 type TabIndex = 0 | 1 | 2 | 3
+
+/** Состояние узла (ранговое). */
+type NodeState = 'maxed' | 'buyable' | 'locked-branch' | 'locked-tier' | 'no-money'
 
 export class NestScene extends Phaser.Scene {
   private audio!: AudioSystem
@@ -48,6 +65,8 @@ export class NestScene extends Phaser.Scene {
   private selectedNode: NestNode | null = null
   private selectedMark: Phaser.GameObjects.Shape | null = null
   private tooltip!: Phaser.GameObjects.Text
+  private tooltipPanel!: Phaser.GameObjects.Rectangle
+  private tooltipBar!: Phaser.GameObjects.Rectangle
   private buyButton!: Phaser.GameObjects.Container
   private buyLabel!: Phaser.GameObjects.Text
 
@@ -66,19 +85,32 @@ export class NestScene extends Phaser.Scene {
     this.tab = 0
     this.selectedNode = null
 
-    // Полотно + мягкое дыхание глубины (как меню — узнаваемость хаба).
+    // ── Сцена-пещера: фон-мегаволт затемнён + вигнетка (шаг 24: гнездо
+    //    живёт В пещере, а не на пустой плашке).
     this.add.rectangle(cx, cy, width, height, 0x0b0b10).setDepth(DEPTH_BG)
-    const breath = this.add.image(cx, cy + 120, 'glow-purple')
-      .setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.05).setScale(6, 3)
+    const bg = this.add.image(cx, cy, 'bg-megavault')
       .setDepth(DEPTH_BG)
+      .setAlpha(0.22)
+      .setDisplaySize(width * 1.05, height * 1.05)
+    const bgEm = this.add.image(cx, cy, 'bg-megavault-em')
+      .setDepth(DEPTH_BG + 0.1)
+      .setAlpha(0.1)
+      .setDisplaySize(width * 1.05, height * 1.05)
+      .setBlendMode(Phaser.BlendModes.ADD)
     this.tweens.add({
-      targets: breath,
-      alpha: { from: 0.03, to: 0.07 },
-      duration: 4200,
+      targets: [bgEm],
+      alpha: { from: 0.07, to: 0.14 },
+      duration: 5200,
       yoyo: true,
       repeat: -1,
       ease: 'Sine.InOut',
     })
+    void bg
+    this.add.image(cx, cy, 'vignette')
+      .setDisplaySize(width * 1.25, height * 1.25)
+      .setDepth(DEPTH_BG + 0.2)
+      .setAlpha(0.75)
+
     // Талисман хаба — сам герой (правый нижний угол, не мешает узлам древа).
     this.add.image(width - 62, height - 52, 'hero-idle').setScale(1.4).setAlpha(0.9).setDepth(DEPTH_PANEL)
 
@@ -99,8 +131,8 @@ export class NestScene extends Phaser.Scene {
 
     // Кнопка «в пещеру» — правый верхний угол.
     const cave = this.add.text(width - 24, 22, 'В ПЕЩЕРУ ▸', {
-      fontFamily: 'monospace', fontSize: '15px', color: COL_ACCENT,
-      backgroundColor: '#12262b', padding: { x: 10, y: 5 },
+      fontFamily: 'monospace', fontSize: '15px', color: '#0b0b10',
+      backgroundColor: '#58E6C8', padding: { x: 10, y: 5 },
     }).setOrigin(1, 0).setDepth(DEPTH_UI).setInteractive({ useHandCursor: true })
     cave.on(Phaser.Input.Events.POINTER_DOWN, () => this.leave('Cave'))
 
@@ -129,22 +161,29 @@ export class NestScene extends Phaser.Scene {
     // Слой содержимого вкладок — пересобирается при смене вкладки.
     this.tabLayer = this.add.container(0, 0).setDepth(DEPTH_PANEL)
 
-    // Подсказка/описание внизу + кнопка покупки.
-    this.tooltip = this.add.text(cx, height - 56, '', {
-      fontFamily: 'monospace', fontSize: '13px', color: COL_TEXT,
-      align: 'center', wordWrap: { width: width - 240 },
+    // Панель подсказки внизу (шаг 24: рамочная плашка с цветной кромкой).
+    this.tooltipPanel = this.add.rectangle(cx, height - 54, 640, 46, 0x0e0e16, 0.92)
+      .setStrokeStyle(1, 0x2a2a3a)
+      .setDepth(DEPTH_UI)
+      .setVisible(false)
+    this.tooltipBar = this.add.rectangle(cx - 318, height - 54, 4, 38, 0x58e6c8)
+      .setDepth(DEPTH_UI)
+      .setVisible(false)
+    this.tooltip = this.add.text(cx, height - 54, '', {
+      fontFamily: 'monospace', fontSize: '12px', color: COL_TEXT,
+      align: 'center', wordWrap: { width: 580 },
     }).setOrigin(0.5).setDepth(DEPTH_UI)
 
     this.buyLabel = this.add.text(0, 0, '', {
       fontFamily: 'monospace', fontSize: '14px', fontStyle: 'bold', color: '#0b0b10',
       backgroundColor: '#E8A34F', padding: { x: 14, y: 7 },
     }).setOrigin(0.5)
-    this.buyButton = this.add.container(cx, height - 24, [this.buyLabel]).setDepth(DEPTH_UI).setVisible(false)
+    this.buyButton = this.add.container(cx, height - 20, [this.buyLabel]).setDepth(DEPTH_UI).setVisible(false)
     this.buyButton.setSize(220, 30)
     this.buyButton.setInteractive({ useHandCursor: true })
     this.buyButton.on(Phaser.Input.Events.POINTER_DOWN, () => this.confirmBuy())
 
-    this.add.text(24, height - 16, 'ESC — в меню', {
+    this.add.text(24, height - 16, 'ESC — в меню · узлы качаются до 3 рангов', {
       fontFamily: 'monospace', fontSize: '11px', color: COL_FAINT,
     }).setDepth(DEPTH_UI)
 
@@ -165,6 +204,8 @@ export class NestScene extends Phaser.Scene {
     this.tabLayer.removeAll(true)
     this.buyButton.setVisible(false)
     this.tooltip.setText('')
+    this.tooltipPanel.setVisible(false)
+    this.tooltipBar.setVisible(false)
     this.clearSelectionMark()
 
     for (let i = 0; i < NEST.tabNames.length; i++) {
@@ -172,6 +213,7 @@ export class NestScene extends Phaser.Scene {
       if (bg?.tabLabel) {
         const active = this.tab === i
         bg.setFillStyle(active ? 0x2a2a3a : 0x151522)
+        bg.setStrokeStyle(active ? 1 : 1, active ? 0x58e6c8 : 0x2a2a3a)
         bg.tabLabel.setColor(active ? '#ffffff' : COL_DIM)
       }
     }
@@ -185,9 +227,10 @@ export class NestScene extends Phaser.Scene {
   }
 
   private refreshEssence(): void {
-    const spent = this.save.nodes.reduce((s, id) => s + (NEST_NODES.get(id)?.cost ?? 0), 0)
+    const spent = nestSpent(this.save.ranks)
     this.essenceText.setText(`◈ ${this.save.essence}`)
-    this.progressText.setText(`древо ${spent}/${NEST_TOTAL_COST}`)
+    // Шаг 24: прогресс — Эссенция (ранги!), не число узлов.
+    this.progressText.setText(`древо ${spent}◈ / ${NEST_TOTAL_FULL}◈`)
   }
 
   // ── Вкладка: древо навыков ───────────────────────────────────────────────
@@ -195,11 +238,13 @@ export class NestScene extends Phaser.Scene {
   private buildTreeTab(): void {
     const { width, height } = this.scale
     const colW = NEST.branchColW
-    const nodeR = NEST.nodeR
     const totalW = NEST.branches.length * colW
     const startX = width / 2 - totalW / 2 + colW / 2
-    const treeTop = 108
-    const treeBottom = height - 84
+    const treeTop = 118
+    const treeBottom = height - 92
+
+    // Один Graphics на всё древо: связи + рамки + пипсы (дёшево).
+    const gfx = this.tabAdd(this.add.graphics())
 
     for (let b = 0; b < NEST.branches.length; b++) {
       const branch = NEST.branches[b]
@@ -207,103 +252,195 @@ export class NestScene extends Phaser.Scene {
       const unlocked = this.save.stats.bestDepthM >= branch.unlockDepthM
       const colorInt = hexInt(branch.color)
 
-      this.tabAdd(this.add.text(colX, treeTop - 14, branch.name.toUpperCase(), {
+      // Заголовок ветки: иконка + имя + счётчик рангов.
+      const rankCount = branch.nodes.reduce((s, n) => s + (this.save.ranks[n.id] ?? 0), 0)
+      const rankTotal = branch.nodes.reduce((s, n) => s + nodeRanks(n), 0)
+      const iconKey = `icon-${BRANCH_ICON[branch.id] ?? 'crystal'}`
+      const headIcon = this.tabAdd(this.add.image(colX - 44, treeTop - 16, iconKey)
+        .setAlpha(unlocked ? 0.95 : 0.25))
+      this.tabAdd(this.add.text(colX - 30, treeTop - 14, branch.name.toUpperCase(), {
         fontFamily: 'monospace', fontSize: '13px', fontStyle: 'bold',
         color: unlocked ? branch.color : COL_FAINT,
-      }).setOrigin(0.5))
-      this.tabAdd(this.add.text(colX, treeTop + 2, unlocked
-        ? `${this.branchBought(branch)}/${branch.nodes.length}`
+      }).setOrigin(0, 0.5))
+      this.tabAdd(this.add.text(colX - 30, treeTop + 2, unlocked
+        ? `${this.branchBought(branch)}/${branch.nodes.length} узлов · ${rankCount}/${rankTotal} рангов`
         : `откроется на ${branch.unlockDepthM} м`, {
-        fontFamily: 'monospace', fontSize: '10px', color: COL_FAINT,
-      }).setOrigin(0.5))
+        fontFamily: 'monospace', fontSize: '9px', color: unlocked ? COL_FAINT : '#46444f',
+      }).setOrigin(0, 0.5))
+      void headIcon
 
       // 5 тиров = 5 рядов снизу вверх, по 3 узла в ряду (тир = ступень).
       const rows = 5
       const rowH = (treeBottom - treeTop - 20) / rows
       const tierCount: Record<number, number> = {}
+      const slotX: Record<string, number> = {}
+      const slotY: Record<string, number> = {}
       for (const node of branch.nodes) {
         const rowFromBottom = node.tier - 1
-        const y = treeBottom - 6 - rowFromBottom * rowH
+        const y = treeBottom - 6 - rowFromBottom * rowH - NODE_CELL / 2
         const slotInTier = tierCount[node.tier] ?? 0
         tierCount[node.tier] = slotInTier + 1
         const x = colX + (slotInTier - 1) * (colW * 0.32)
-        this.buildNode(node, x, y, nodeR, unlocked, colorInt, branch)
+        slotX[node.id] = x
+        slotY[node.id] = y
+      }
+
+      // Связи тиров: вертикальные жилы от ряда к ряду (цвет ветки, тише фона).
+      gfx.lineStyle(1.5, colorInt, unlocked ? 0.22 : 0.08)
+      for (let tier = 2; tier <= 5; tier++) {
+        const yAbove = treeBottom - 6 - (tier - 2) * rowH - NODE_CELL / 2 + NODE_CELL / 2 + 4
+        const yBelow = treeBottom - 6 - (tier - 1) * rowH - NODE_CELL / 2 + NODE_CELL / 2 + 4
+        for (let s = 0; s < 3; s++) {
+          const x = colX + (s - 1) * (colW * 0.32)
+          gfx.lineBetween(x, yAbove, x, yBelow)
+        }
+      }
+      void slotY
+
+      for (const node of branch.nodes) {
+        this.buildNode(gfx, node, slotX[node.id], slotY[node.id], unlocked, colorInt, branch)
       }
     }
   }
 
   private branchBought(branch: NestBranch): number {
-    return branch.nodes.filter((n) => this.save.nodes.includes(n.id)).length
+    return branch.nodes.filter((n) => (this.save.ranks[n.id] ?? 0) > 0).length
   }
 
-  /** Доступность узла: ветка открыта, предыдущий тир освоен, не куплен. */
-  private nodeState(node: NestNode, branchUnlocked: boolean): 'bought' | 'available' | 'locked-branch' | 'locked-tier' | 'no-money' {
-    if (this.save.nodes.includes(node.id)) return 'bought'
+  /** Ранговое состояние узла (шаг 24: экономика рангов + строгие тиры). */
+  private nodeState(node: NestNode, branchUnlocked: boolean): NodeState {
+    const rank = this.save.ranks[node.id] ?? 0
+    if (rank >= nodeRanks(node)) return 'maxed'
     if (!branchUnlocked) return 'locked-branch'
     if (node.tier > 1) {
       const branch = NEST.branches.find((b) => b.nodes.includes(node))!
-      const prevBought = branch.nodes.some((n) => n.tier === node.tier - 1 && this.save.nodes.includes(n.id))
-      if (!prevBought) return 'locked-tier'
+      // Тир 2 — любой один узел тира 1; тир 3+ — tierReqNodes (строже).
+      const need = node.tier >= 3 ? NEST.tierReqNodes : 1
+      const prevBought = branch.nodes.filter(
+        (n) => n.tier === node.tier - 1 && (this.save.ranks[n.id] ?? 0) > 0,
+      ).length
+      if (prevBought < need) return 'locked-tier'
     }
-    return this.save.essence >= node.cost ? 'available' : 'no-money'
+    return this.save.essence >= nodeRankCost(node, rank + 1) ? 'buyable' : 'no-money'
   }
 
   private buildNode(
+    gfx: Phaser.GameObjects.Graphics,
     node: NestNode,
     x: number,
     y: number,
-    r: number,
     branchUnlocked: boolean,
     colorInt: number,
     branch: NestBranch,
   ): void {
     const state = this.nodeState(node, branchUnlocked)
+    const rank = this.save.ranks[node.id] ?? 0
+    const ranks = nodeRanks(node)
     const isKey = node.type === 'key'
     const isAbility = node.type === 'ability'
+    const half = NODE_CELL / 2
 
-    let fill = 0x151522
-    let alpha = 0.9
+    // ── Рамка: форма кодирует тип узла (читаемость без текста).
+    const framePts = (sides: number, r: number, rot = 0): number[] => {
+      const pts: number[] = []
+      for (let i = 0; i < sides; i++) {
+        const a = ((Math.PI * 2) / sides) * i + rot
+        pts.push(x + Math.cos(a) * r, y + Math.sin(a) * r)
+      }
+      return pts
+    }
+    let fill = 0x101018
+    let alpha = 0.92
     let stroke = 0x2a2a3a
     let strokeWidth = 1
-    if (state === 'bought') {
+    if (state === 'maxed') {
       fill = colorInt
-      alpha = isKey ? 0.95 : 0.8
+      alpha = 0.3
       stroke = colorInt
       strokeWidth = 2
-    } else if (state === 'available') {
+    } else if (rank > 0) {
+      // Куплен частично — рамка ветки, фон чуть теплее.
+      fill = 0x181826
+      stroke = colorInt
+      strokeWidth = 1.5
+    } else if (state === 'buyable') {
       stroke = colorInt
       strokeWidth = 1.5
     } else if (state === 'no-money') {
       stroke = colorInt
+      strokeWidth = 1
     }
 
-    // Форма узла: ключевые мутации — шестиугольник, способности — круг
-    // поменьше, статы — круг. Тип читается формой и подписью при выборе.
-    let shape: Phaser.GameObjects.Shape
     if (isKey) {
-      const pts: number[] = []
-      for (let i = 0; i < 6; i++) {
-        const a = (Math.PI / 3) * i - Math.PI / 6
-        pts.push(x + Math.cos(a) * r, y + Math.sin(a) * r)
-      }
-      const poly = this.add.polygon(x, y, pts, fill, alpha)
-      poly.setStrokeStyle(strokeWidth, stroke)
-      shape = poly
+      gfx.fillStyle(fill, alpha)
+      gfx.fillPoints(framePts(6, half - 1, -Math.PI / 6), true)
+      gfx.lineStyle(strokeWidth, stroke, 0.95)
+      gfx.strokePoints(framePts(6, half - 1, -Math.PI / 6), true, true)
+    } else if (isAbility) {
+      gfx.fillStyle(fill, alpha)
+      gfx.fillCircle(x, y, half - 1)
+      gfx.lineStyle(strokeWidth, stroke, 0.95)
+      gfx.strokeCircle(x, y, half - 1)
     } else {
-      const circle = this.add.arc(x, y, r)
-      circle.setFillStyle(fill, alpha)
-      circle.setStrokeStyle(strokeWidth, stroke)
-      if (isAbility) circle.setScale(0.92, 0.92)
-      shape = circle
+      // Стат — квадрат со срезанными углами (гнездо-слот).
+      const c = 7
+      const pts = [
+        x - half + c, y - half, x + half - c, y - half,
+        x + half, y - half + c, x + half, y + half - c,
+        x + half - c, y + half, x - half + c, y + half,
+        x - half, y + half - c, x - half, y - half + c,
+      ]
+      gfx.fillStyle(fill, alpha)
+      gfx.fillPoints(pts, true)
+      gfx.lineStyle(strokeWidth, stroke, 0.95)
+      gfx.strokePoints(pts, true, true)
     }
-    this.tabAdd(shape)
-    shape.setData('nodeId', node.id)
-    shape.setData('state', state)
 
-    if (state === 'bought') {
-      this.tabAdd(this.add.circle(x, y, 3, 0x0b0b10))
-    } else if (state === 'available') {
-      const pulse = this.tabAdd(this.add.circle(x, y, 2.5, colorInt))
+    // ── Иконка эффекта (шаг 24: «норм арты»).
+    const icon = this.tabAdd(this.add.image(x, y - 3, nodeIcon(node.effect.type)))
+    icon.setScale(0.72)
+    if (state === 'maxed') icon.setAlpha(1)
+    else if (state === 'locked-branch' || state === 'locked-tier') icon.setAlpha(0.22)
+    else if (rank > 0) icon.setAlpha(0.95)
+    else icon.setAlpha(state === 'buyable' ? 0.85 : 0.45)
+
+    // ── Пипсы рангов (до 3): заполненные — куплено, контур — следующий.
+    if (ranks > 1) {
+      const pipY = y + half - 6
+      const pipR = 2.2
+      const pipStep = 8
+      const pipX0 = x - ((ranks - 1) * pipStep) / 2
+      for (let r = 1; r <= ranks; r++) {
+        const px = pipX0 + (r - 1) * pipStep
+        if (r <= rank) {
+          gfx.fillStyle(colorInt, 0.95)
+          gfx.fillCircle(px, pipY, pipR)
+        } else if (r === rank + 1 && state !== 'locked-branch' && state !== 'locked-tier') {
+          gfx.lineStyle(1, colorInt, 0.8)
+          gfx.strokeCircle(px, pipY, pipR)
+        } else {
+          gfx.lineStyle(1, 0x3a3a4c, 0.7)
+          gfx.strokeCircle(px, pipY, pipR)
+        }
+      }
+    }
+
+    // ── Цена следующего ранга (или МАКС).
+    if (state === 'maxed') {
+      this.tabAdd(this.add.text(x, y + half + 4, 'МАКС', {
+        fontFamily: 'monospace', fontSize: '8px', fontStyle: 'bold', color: branch.color,
+      }).setOrigin(0.5))
+    } else if (state !== 'locked-branch' && state !== 'locked-tier') {
+      const cost = nodeRankCost(node, rank + 1)
+      this.tabAdd(this.add.text(x, y + half + 4, `${cost}◈`, {
+        fontFamily: 'monospace', fontSize: '9px',
+        color: state === 'buyable' ? '#E8A34F' : COL_FAINT,
+      }).setOrigin(0.5))
+    }
+
+    // ── Пульс доступности (дёшево: одна точка на узел).
+    if (state === 'buyable') {
+      const pulse = this.tabAdd(this.add.circle(x, y - half - 5, 2.5, colorInt))
       this.tweens.add({
         targets: pulse,
         alpha: { from: 1, to: 0.2 },
@@ -315,44 +452,61 @@ export class NestScene extends Phaser.Scene {
       })
     }
 
-    if (state !== 'bought') {
-      this.tabAdd(this.add.text(x, y + r + 4, `${node.cost}◈`, {
-        fontFamily: 'monospace', fontSize: '9px',
-        color: state === 'available' ? '#E8A34F' : COL_FAINT,
-      }).setOrigin(0.5))
-    }
-
-    shape.setInteractive({ useHandCursor: state === 'available' || state === 'no-money' })
-    shape.on(Phaser.Input.Events.POINTER_DOWN, () => {
-      if (state === 'bought') {
-        this.tooltip.setText(`${node.name} — куплено\n${node.desc}`)
+    // ── Тач/мышь: невидимая зона шире клетки (палец ≥ 44px).
+    const zone = this.tabAdd(this.add.zone(x, y, NODE_CELL + 8, NODE_CELL + 14))
+      .setInteractive({ useHandCursor: state === 'buyable' || state === 'no-money' })
+    zone.setData('nodeId', node.id)
+    zone.on(Phaser.Input.Events.POINTER_DOWN, () => {
+      const typeLabel = node.type === 'stat' ? 'стат' : node.type === 'ability' ? 'способность' : 'КЛЮЧЕВАЯ'
+      if (state === 'maxed') {
+        this.showTooltip(`${node.name} · ${typeLabel} · ранг ${rank}/${ranks} — МАКС\n${node.desc}`, branch.color)
         this.audio.play('uiClick')
         return
       }
       if (state === 'locked-branch') {
-        this.tooltip.setText(`«${branch.name}» откроется, когда рекорд глубины достигнет ${branch.unlockDepthM} м (сейчас ${this.save.stats.bestDepthM} м)`)
+        this.showTooltip(`«${branch.name}» откроется, когда рекорд глубины достигнет ${branch.unlockDepthM} м (сейчас ${this.save.stats.bestDepthM} м)`, branch.color)
         this.audio.play('clank')
         return
       }
       if (state === 'locked-tier') {
-        this.tooltip.setText(`«${node.name}»: сначала купи любой узел тира ${node.tier - 1} ветки «${branch.name}»`)
+        const need = node.tier >= 3 ? NEST.tierReqNodes : 1
+        this.showTooltip(`«${node.name}»: сначала купи ${need === 1 ? 'любой узел' : `${need} узла`} тира ${node.tier - 1} ветки «${branch.name}»`, branch.color)
         this.audio.play('clank')
         return
       }
       this.selectNode(node, x, y, colorInt)
-      this.tooltip.setText(`${node.name} · [${node.type === 'stat' ? 'стат' : node.type === 'ability' ? 'способность' : 'КЛЮЧЕВАЯ мутация'}]\n${node.desc}`)
+      const cost = nodeRankCost(node, rank + 1)
+      const rankLine = ranks > 1 ? ` · ранг ${rank}→${rank + 1} из ${ranks}` : ''
+      this.showTooltip(`${node.name} · ${typeLabel}${rankLine} · ${cost}◈\n${node.desc}`, branch.color)
     })
-    shape.on(Phaser.Input.Events.POINTER_OVER, () => {
-      if (state !== 'bought' && this.selectedNode !== node) this.tooltip.setText(`${node.name} (${node.cost}◈) — ${node.desc}`)
+    zone.on(Phaser.Input.Events.POINTER_OVER, () => {
+      if (state !== 'maxed' && this.selectedNode !== node) {
+        const cost = state === 'locked-branch' || state === 'locked-tier' ? '—' : `${nodeRankCost(node, rank + 1)}◈`
+        this.showTooltip(`${node.name} (${cost}) — ${node.desc}`, branch.color)
+      }
     })
+  }
+
+  /** Панель-подсказка внизу с цветной кромкой ветки. */
+  private showTooltip(text: string, branchColor: string): void {
+    this.tooltip.setText(text)
+    this.tooltipPanel.setVisible(true)
+    this.tooltipBar.setVisible(true)
+    this.tooltipBar.setFillStyle(hexInt(branchColor))
   }
 
   private selectNode(node: NestNode, x: number, y: number, colorInt: number): void {
     this.clearSelectionMark()
     this.selectedNode = node
-    this.selectedMark = this.tabAdd(this.add.circle(x, y, NEST.nodeR + 5).setStrokeStyle(2, colorInt, 0.95))
-    const afford = this.save.essence >= node.cost
-    this.buyLabel.setText(afford ? `КУПИТЬ · ${node.cost}◈` : `НЕ ХВАТАЕТ · ${node.cost}◈`)
+    this.selectedMark = this.tabAdd(this.add.circle(x, y, NODE_CELL / 2 + 5).setStrokeStyle(2, colorInt, 0.95))
+    const rank = this.save.ranks[node.id] ?? 0
+    const cost = nodeRankCost(node, rank + 1)
+    const afford = this.save.essence >= cost
+    const ranks = nodeRanks(node)
+    const label = ranks > 1 && rank > 0
+      ? `УЛУЧШИТЬ ${rank}→${rank + 1} · ${cost}◈`
+      : `КУПИТЬ · ${cost}◈`
+    this.buyLabel.setText(afford ? label : `НЕ ХВАТАЕТ · ${cost}◈`)
     this.buyLabel.setBackgroundColor(afford ? '#E8A34F' : '#5A5866')
     this.buyButton.setVisible(true)
   }
@@ -367,20 +521,28 @@ export class NestScene extends Phaser.Scene {
   private confirmBuy(): void {
     const node = this.selectedNode
     if (!node) return
-    if (this.save.essence < node.cost) {
+    const rank = this.save.ranks[node.id] ?? 0
+    const ranks = nodeRanks(node)
+    if (rank >= ranks) return
+    const cost = nodeRankCost(node, rank + 1)
+    if (this.save.essence < cost) {
       this.audio.play('clank')
-      this.tooltip.setText('Не хватает Эссенции. Иди в пещеру, пожри — Гнездо подождёт.')
+      this.showTooltip('Не хватает Эссенции. Иди в пещеру, пожри — Гнездо подождёт.', '#E8A34F')
       return
     }
     this.save = updateNestSave((s) => {
-      s.essence -= node.cost
-      s.nodes.push(node.id)
+      s.essence -= cost
+      if (rank === 0) s.nodes.push(node.id)
+      s.ranks[node.id] = rank + 1
     })
     this.audio.play('gene')
     this.clearSelectionMark()
     this.refreshEssence()
     this.rebuildTabs()
-    this.tooltip.setText(`Внедрено: ${node.name}. Следующий забег уже сильнее.`)
+    const line = rank + 1 >= ranks
+      ? `${node.name} — ранг МАКС. Следующий забег уже сильнее.`
+      : `${node.name} — ранг ${rank + 1}/${ranks}. Следующий ранг дороже.`
+    this.showTooltip(line, '#58E6C8')
   }
 
   // ── Вкладка: бестиарий ───────────────────────────────────────────────────
@@ -390,40 +552,44 @@ export class NestScene extends Phaser.Scene {
     const species = Object.entries(ENEMIES.species)
     const cols = 3
     const cardW = 244
-    const cardH = 150
+    const cardH = 118
     const startX = width / 2 - (cols * cardW + (cols - 1) * 12) / 2
-    const startY = 120
+    const startY = 118
 
     species.forEach(([id, sp], i) => {
       const col = i % cols
       const row = Math.floor(i / cols)
       const x = startX + col * (cardW + 12)
-      const y = startY + row * (cardH + 12)
+      const y = startY + row * (cardH + 10)
       const seen = (this.save.bestiary[id]?.eaten ?? 0) + (this.save.bestiary[id]?.killed ?? 0) > 0
 
       this.tabAdd(this.add.rectangle(x + cardW / 2, y + cardH / 2, cardW, cardH, 0x12121c, 0.92)
         .setStrokeStyle(1, seen ? 0x3a3a4c : 0x1e1e2c))
-      const portrait = this.tabAdd(this.add.image(x + 34, y + 38, sp.texture).setScale(1.8))
+      const portrait = this.tabAdd(this.add.image(x + 34, y + 34, sp.texture).setScale(1.5))
       if (!seen) {
         portrait.setTint(0x1c1c28)
-        this.tabAdd(this.add.text(x + 34, y + 38, '?', {
-          fontFamily: 'Georgia, serif', fontSize: '30px', color: '#2c2c3c',
+        this.tabAdd(this.add.text(x + 34, y + 34, '?', {
+          fontFamily: 'Georgia, serif', fontSize: '28px', color: '#2c2c3c',
         }).setOrigin(0.5))
       }
-      this.tabAdd(this.add.text(x + 66, y + 20, seen ? sp.name : '???', {
+      this.tabAdd(this.add.text(x + 64, y + 16, seen ? sp.name : '???', {
         fontFamily: 'monospace', fontSize: '13px', fontStyle: 'bold',
         color: seen ? COL_TEXT : '#3c3c4c',
       }))
-      this.tabAdd(this.add.text(x + 66, y + 40, seen
+      this.tabAdd(this.add.text(x + 64, y + 36, seen
         ? `съедено: ${this.save.bestiary[id]?.eaten ?? 0}\nубито: ${this.save.bestiary[id]?.killed ?? 0}`
         : 'не встречен', {
         fontFamily: 'monospace', fontSize: '11px', color: seen ? '#E8A34F' : COL_FAINT,
-        lineSpacing: 4,
+        lineSpacing: 3,
       }))
-      this.tabAdd(this.add.text(x + 12, y + 78, seen ? (sp._flavor ?? '') : 'Пещера хранит свои тайны.', {
-        fontFamily: 'monospace', fontSize: '10px', color: COL_DIM,
-        wordWrap: { width: cardW - 24 }, lineSpacing: 3,
+      this.tabAdd(this.add.text(x + 12, y + 66, seen ? (sp._flavor ?? '') : 'Пещера хранит свои тайны.', {
+        fontFamily: 'monospace', fontSize: '9px', color: COL_DIM,
+        wordWrap: { width: cardW - 24 }, lineSpacing: 2,
       }))
+      if (seen && sp.essence >= 8) {
+        // Шаг 24: метка хищника — красный клык у имени (опасные виды).
+        this.tabAdd(this.add.image(x + cardW - 16, y + 16, 'icon-fangs').setScale(0.4).setAlpha(0.85))
+      }
     })
   }
 
@@ -489,7 +655,8 @@ export class NestScene extends Phaser.Scene {
       align: 'center', lineSpacing: 9,
     }).setOrigin(0.5, 0))
 
-    this.tabAdd(this.add.text(width / 2, 420, 'Эссенция капает за каждое убийство и поедание,\nа за новый рекорд глубины — щедрым куском.', {
+    this.tabAdd(this.add.text(width / 2, 420,
+      'Эссенция капает за каждое убийство и поедание, щедрее — в глубине:\nбагровые мобы старых полос жирнее и опаснее сразу.', {
       fontFamily: 'monospace', fontSize: '12px', color: COL_FAINT, align: 'center',
     }).setOrigin(0.5))
   }

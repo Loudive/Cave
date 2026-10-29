@@ -78,6 +78,24 @@ export const ASSETS: AssetEntry[] = [
   { key: 'light-shaft', file: 'light-shaft.png' },
   // Нейрогенерация (шаг 5+ разрешена): splash-арт меню, палитра игры.
   { key: 'menu-splash', file: 'menu-splash.jpg' },
+  // Шаг 24: иконки древа навыков (16 образов, scripts/process-icons.mjs,
+  // нейро-листы scripts/gen-step24.mjs) — узлы Гнезда и заголовки веток.
+  { key: 'icon-fangs', file: 'icon-fangs.png' },
+  { key: 'icon-jaw', file: 'icon-jaw.png' },
+  { key: 'icon-blood', file: 'icon-blood.png' },
+  { key: 'icon-claw', file: 'icon-claw.png' },
+  { key: 'icon-heart', file: 'icon-heart.png' },
+  { key: 'icon-shield', file: 'icon-shield.png' },
+  { key: 'icon-stomach', file: 'icon-stomach.png' },
+  { key: 'icon-eye', file: 'icon-eye.png' },
+  { key: 'icon-wing', file: 'icon-wing.png' },
+  { key: 'icon-paw', file: 'icon-paw.png' },
+  { key: 'icon-mushroom', file: 'icon-mushroom.png' },
+  { key: 'icon-flame', file: 'icon-flame.png' },
+  { key: 'icon-crystal', file: 'icon-crystal.png' },
+  { key: 'icon-dna', file: 'icon-dna.png' },
+  { key: 'icon-ghost', file: 'icon-ghost.png' },
+  { key: 'icon-egg', file: 'icon-egg.png' },
   // Пост-эффекты.
   { key: 'vignette', file: 'vignette.png' },
 ]
@@ -89,7 +107,7 @@ export const ASSETS: AssetEntry[] = [
  * обломок никуда не делся», а на диске файл уже чистый). Поднимай версию
  * при КАЖДОМ изменении файлов в assets/ (мобы, герой, фоны, glows).
  */
-const ASSET_VERSION = 's23'
+const ASSET_VERSION = 's24'
 
 /**
  * URL файла ассета. publicDir='assets' в Vite кладёт PNG в корень dist,

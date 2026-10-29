@@ -29,6 +29,39 @@
     "hpFromChew": 2,
     "invulnAfterHitMs": 500
   },
+  "heavy": {
+    "_doc": "Шаг 24: СИЛЬНЫЙ УДАР (K / тач-кнопка). Долгий телеграф-присед — расплата: урон ×damageMult, широкая дуга, стан жертвы и полукруг брони (armorPierce — какая доля физической брони игнорируется). Откат больше обычного укуса — удар «обдуманный», им разбивают панцири и толпу.",
+    "windupMs": 520,
+    "activeMs": 170,
+    "cooldownMs": 1500,
+    "damageMult": 2.6,
+    "rangeMult": 1.45,
+    "arcDeg": 210,
+    "knockbackMult": 1.9,
+    "stunMs": 280,
+    "armorPierce": 0.6,
+    "lungeSpeed": 180,
+    "hitstopMs": 130,
+    "shakePx": 7,
+    "shakeMs": 200
+  },
+  "dive": {
+    "_doc": "Шаг 24: УДАР С ПОЛЁТА (J в падении/плане). Хищник складывает крылья и пикирует по диагонали: урон ×damageMult каждому на пути, попадание отбрасывает жертву и подбрасывает охотника (bounceVy) — можно цепочкой перепрыгивать стаю. Приземление без добычи = ударная волна (shock*) по радиусу. Вход: в воздухе и vy ≥ minVy.",
+    "minVy": 40,
+    "vx": 300,
+    "vy": 430,
+    "damageMult": 2.1,
+    "hitRadius": 40,
+    "knockback": 320,
+    "bounceVy": -230,
+    "maxMs": 1400,
+    "shockRadius": 66,
+    "shockDamageMult": 0.7,
+    "shockKnockback": 200,
+    "hitstopMs": 120,
+    "shakePx": 8,
+    "shakeMs": 180
+  },
   "hunger": {
     "max": 100,
     "tickMs": 2000,
@@ -124,5 +157,6 @@
   "twitch": {
     "minMs": 2600,
     "maxMs": 7200
-  }
+  },
+  "_doc_heavy_dive": "Шаг 24: heavy (сильный удар, K) и dive (удар с полёта, J в воздухе) — расширение FSM Combat: ready → heavy-windup → heavy-active → recover и ready → dive → (попадание/приземление) → recover. Все числа здесь, код без магических констант."
 }

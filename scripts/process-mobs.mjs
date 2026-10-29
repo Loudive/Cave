@@ -51,13 +51,19 @@ const SPECIES = {
   bloodsucker: { drawH: 26, name: 'кровосос' },
   shell:       { drawH: 30, name: 'бронепанцирь' },
   lava:        { drawH: 26, name: 'лавовый ползун' },
+  // Шаг 24: хищники глубины (gen-step24.mjs) — читаются грозно,
+  // но остаются ниже героя (стиль-контракт: герой — крупнейший охотник).
+  stalker:     { drawH: 30, name: 'глубинный сталкер' },
+  devourer:    { drawH: 34, name: 'пожиратель глубин' },
 }
 
 /** Куркация кадров (после просмотра preview.png; индексы компонентов). */
 // PICK.<вид> — ручной выбор компонентов, когда модель рисует не 4 кадра.
 // shell: нейро нарисовал сетку 2×3 (6 черепах) — берём 4 в порядке чтения;
 // позы почти идентичны («панцирь едва двигается — работают ноги»), цикл читается.
-const PICK = { shell: [0, 1, 2, 3] }
+// stalker (шаг 24): 5 фигур в 2 ряда — VLM-курация: средняя нижняя (дубль
+// позы) отброшена, цикл = верх-лево, верх-право, низ-право, низ-крайний-право.
+const PICK = { shell: [0, 1, 2, 3], stalker: [0, 1, 3, 4] }
 
 const CFG = {
   keyTol: 55,
@@ -313,8 +319,14 @@ async function contactPreview() {
 }
 
 async function main() {
+  // Шаг 24: --only id1,id2 — нарезать только перечисленные виды
+  // (грабля step23: перегон ВСЕХ видов рискует задеть shipped-ассеты,
+  // если design/raw обновлялся позже нарезки).
+  const onlyArg = process.argv.includes('--only') ? process.argv[process.argv.indexOf('--only') + 1] : null
+  const only = onlyArg ? new Set(onlyArg.split(',')) : null
   let failed = 0
   for (const id of Object.keys(SPECIES)) {
+    if (only && !only.has(id)) continue
     console.log(`Вид ${id} (${SPECIES[id].name})`)
     if (PLACEHOLDER) {
       await buildPlaceholder(id)

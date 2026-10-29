@@ -118,6 +118,10 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
   // (Eating.isChewing): на земле вместо idle/run играется hero-eat.
   public isEating = false
 
+  /** Шаг 24: идёт пике-наскок (Combat 'dive') — морда круто вниз;
+   *  Combat снимает флаг по концу удара (endDive). */
+  public diveTilt = false
+
   // Шаг 11 (переработка): играется одноразовая анимация смерти —
   // состояние её не перебивает до скрытия спрайта сценой.
   private deathPlaying = false
@@ -257,7 +261,8 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
     // Банк в воздухе: падение клюёт носом, подъём задирает морду —
     // дешёвая кодовая анимация поверх кадров (продаёт движение).
     // На сцепе (шаг 12) — наклон к стене когтями: монстр «обнимает» её.
-    if (this.stateName === 'ground') this.setRotation(0)
+    if (this.diveTilt) this.setRotation(this.facingDir * 0.9)
+    else if (this.stateName === 'ground') this.setRotation(0)
     else if (this.stateName === 'wall-cling') this.setRotation(this.clingDir * MOVEMENT.climb.clingTiltRad)
     else this.setRotation(Phaser.Math.Clamp(body.velocity.y / 1200, -0.12, 0.22))
 
@@ -575,6 +580,37 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
       scaleX: base * 1.3,
       scaleY: base * 0.78,
       duration: 70,
+      yoyo: true,
+      ease: 'Quad.Out',
+      onComplete: () => this.setScale(this.growthScale * this.animScale),
+    })
+  }
+
+  /** Шаг 24: замах СИЛЬНОГО УДАРА — глубокий присед-заряд: пасть
+   *  раскрыта с первого кадра, тело сжимается пружиной (мс — из
+   *  balance.json heavy.windupMs, сцена уже умножила на windupMult). */
+  heavyWindupVisual(ms: number): void {
+    this.setAnimScale(ANIMS.bite.scale)
+    this.play('hero-bite')
+    const base = this.growthScale * this.animScale
+    this.runScaleTween({
+      targets: this,
+      scaleX: base * 0.72,
+      scaleY: base * 1.22,
+      duration: ms,
+      ease: 'Quad.In',
+    })
+  }
+
+  /** Шаг 24: выпад сильного удара — разжатие с перекачкой: масса
+   *  броска читается в перерастяжении (сильнее обычного укуса). */
+  heavyActiveVisual(): void {
+    const base = this.growthScale * this.animScale
+    this.runScaleTween({
+      targets: this,
+      scaleX: base * 1.5,
+      scaleY: base * 0.7,
+      duration: 90,
       yoyo: true,
       ease: 'Quad.Out',
       onComplete: () => this.setScale(this.growthScale * this.animScale),

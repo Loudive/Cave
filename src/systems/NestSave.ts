@@ -42,8 +42,10 @@ export interface NestStats {
 export interface NestSave {
   version: 1
   essence: number
-  /** Купленные узлы древа (id из nest.json). */
+  /** Купленные узлы древа (id из nest.json) — хоть один ранг. */
   nodes: string[]
+  /** Шаг 24: ранг узла по id (статы качаются до 3; старые сейвы — 1). */
+  ranks: Record<string, number>
   /** Бестиарий: speciesId → съедено/убито. */
   bestiary: Record<string, BestiaryEntry>
   /** Коллекция геномов: geneId → сколько копий добыто. */
@@ -71,6 +73,7 @@ export function emptySave(): NestSave {
     version: 1,
     essence: 0,
     nodes: [],
+    ranks: {},
     bestiary: {},
     genomes: {},
     stats: emptyStats(),
@@ -87,6 +90,17 @@ function sanitize(parsed: unknown): NestSave {
   if (typeof parsed.essence === 'number' && Number.isFinite(parsed.essence)) out.essence = Math.max(0, Math.round(parsed.essence))
   if (Array.isArray(parsed.nodes)) {
     out.nodes = parsed.nodes.filter((n): n is string => typeof n === 'string').slice(0, 200)
+  }
+  // Шаг 24: ранги узлов (мутация: узел без записи в ranks = ранг 1).
+  if (isObj(parsed.ranks)) {
+    for (const [k, v] of Object.entries(parsed.ranks)) {
+      if (typeof v === 'number' && Number.isFinite(v) && v >= 1) {
+        out.ranks[k] = Math.min(3, Math.round(v))
+      }
+    }
+  }
+  for (const id of out.nodes) {
+    if (!out.ranks[id]) out.ranks[id] = 1
   }
   if (isObj(parsed.bestiary)) {
     for (const [k, v] of Object.entries(parsed.bestiary)) {

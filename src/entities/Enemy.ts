@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import { ENEMIES, armorResist, type AttackConfig, type DamageType, type SpeciesConfig } from '../config/enemies'
+import { biomeIndexAtMeters } from '../gen/cave'
 import type { Carcass } from '../systems/Eating'
 import { LIGHT } from '../config/light'
 
@@ -80,6 +81,18 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   nestIndex = -1
   /** Уникальный моб (шаг 8): крупнее, живучее, несёт постоянный ген. */
   elite = false
+
+  // ── Шаг 24: глубинное усиление («чем ниже, тем сильнее») ────────────
+  /** Полоса биома спавна (0..5) — от неё взяты множители. */
+  depthBand = 0
+  /** Множитель урона моба (все типы атак; споры — при выстреле). */
+  dmgMult = 1
+  /** Множитель скорости (патруль/погоня/бегство/выпад/полёт). */
+  speedMult = 1
+  /** Прибавка Эссенции за убийство на глубине (Гнездо платит за риск). */
+  essenceBonus = 0
+  /** Багровое глубинное сияние (полоса ≥ glowFromBand) — над маской тьмы. */
+  private deepGlow: Phaser.GameObjects.Image | null = null
   /**
    * Шаг 13 (Dead Cells): убит оверкиллом — убойный урон ≥ gib.overkillShare·maxHp.
    * Ставит Combat.applyHit прямо перед смертью; сцена вместо туши
@@ -263,6 +276,43 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.parasiteDps = dps
     this.parasiteUntil = this.scene.time.now + durationMs
     this.parasiteNextTickAt = this.scene.time.now + 1000
+  }
+
+  /**
+   * Шаг 24: глубинное усиление. Сцена вызывает СРАЗУ после создания
+   * (до makeElite): множители живучести/урона/скорости по полосе
+   * биома спавна + бонус Эссенции + багровое сияние на глубоких полосах.
+   * Глубина — в метрах (depthOffsetMeters + y·metersPerPixel, как в HUD).
+   */
+  applyDepthScale(depthMeters: number): void {
+    const ds = ENEMIES.eco.depthScale
+    this.depthBand = Phaser.Math.Clamp(biomeIndexAtMeters(Math.max(0, depthMeters)), 0, ds.bandHp.length - 1)
+    const b = this.depthBand
+    this.maxHp = Math.round(this.maxHp * (ds.bandHp[b] ?? 1))
+    this.hp = this.maxHp
+    this.dmgMult = ds.bandDmg[b] ?? 1
+    this.speedMult = ds.bandSpeed[b] ?? 1
+    this.essenceBonus = ds.bandEssence[b] ?? 0
+    if (b >= ds.glowFromBand) this.spawnDeepGlow()
+  }
+
+  /** Багровое тление глубины: слабая пульсирующая аура над маской тьмы. */
+  private spawnDeepGlow(): void {
+    const ds = ENEMIES.eco.depthScale
+    this.deepGlow = this.scene.add.image(this.x, this.y, 'glow-red')
+      .setDepth(LIGHT.halo.depth)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setAlpha(ds.glowAlpha)
+      .setScale(1)
+    this.scene.tweens.add({
+      targets: this.deepGlow,
+      alpha: { from: ds.glowAlpha * 0.6, to: ds.glowAlpha * 1.5 },
+      scale: { from: 0.9, to: 1.2 },
+      duration: 1100,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.InOut',
+    })
   }
 
   // ── Главная точка входа: вызывается из scene.update, когда мир не заморожен
@@ -573,9 +623,9 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     // Выпад (lunge): рывок в сторону цели.
     const dirX = Math.sign((this.pursuingPlayer ? ctx.playerX : this.targetMob?.x ?? ctx.playerX) - this.x) || (this.flipX ? -1 : 1)
-    body.velocity.x = dirX * atk.lungeSpeed
+    body.velocity.x = dirX * atk.lungeSpeed * this.speedMult
     if (body.blocked.down) body.velocity.y = -140
-    if (this.species.fly) body.velocity.y = Math.sign((this.pursuingPlayer ? ctx.playerY : this.targetMob?.y ?? ctx.playerY) - this.y) * atk.lungeSpeed * 0.6
+    if (this.species.fly) body.velocity.y = Math.sign((this.pursuingPlayer ? ctx.playerY : this.targetMob?.y ?? ctx.playerY) - this.y) * atk.lungeSpeed * this.speedMult * 0.6
     this.stateName = 'attack'
     this.attackUntil = now + atk.activeMs
     this.attackHasHit = false
@@ -639,12 +689,14 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     }
   }
 
-  /** Нанести урон из выпада: игроку — через сцену, мобу — напрямую. */
+  /** Нанести урон из выпада: игроку — через сцену, мобу — напрямую.
+   *  Шаг 24: глубинный множитель урона применяется ко всем атакам. */
   private landHit(atk: { damage: number; damageType: DamageType }, dx: number): void {
+    const damage = Math.max(1, Math.round(atk.damage * this.dmgMult))
     if (this.pursuingPlayer) {
-      this.callbacks.onPlayerBitten(atk.damage, this.x, this)
+      this.callbacks.onPlayerBitten(damage, this.x, this)
     } else if (this.targetMob && !this.targetMob.dead) {
-      const applied = this.targetMob.takeDamage(atk.damage, Math.sign(dx) || 1, 0, atk.damageType, 'mob', this)
+      const applied = this.targetMob.takeDamage(damage, Math.sign(dx) || 1, 0, atk.damageType, 'mob', this)
       if (applied > 0) this.callbacks.onMobHitMob(this, this.targetMob, applied, atk.damageType)
     }
     this.callbacks.onNoise(this, 'hit')
@@ -676,14 +728,15 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     if (now >= this.drainNextTickAt) {
       this.drainNextTickAt = now + atk.tickMs
+      const tick = Math.max(1, Math.round(atk.drainPerTick * this.dmgMult))
       if (this.drainVictimPlayer) {
-        this.callbacks.onPlayerDrain(this, atk.drainPerTick)
+        this.callbacks.onPlayerDrain(this, tick)
       } else if (this.drainVictimMob) {
-        const applied = this.drainVictimMob.drainHp(atk.drainPerTick, 'mob', this)
+        const applied = this.drainVictimMob.drainHp(tick, 'mob', this)
         if (applied > 0) this.callbacks.onMobHitMob(this, this.drainVictimMob, applied, atk.damageType)
       }
       // Кровосос лечится выпитым.
-      this.hp = Math.min(this.maxHp, this.hp + atk.drainPerTick * atk.healRatio)
+      this.hp = Math.min(this.maxHp, this.hp + tick * atk.healRatio)
       this.callbacks.onNoise(this, 'hit')
     }
     this.drawDrainBeam({ x: vx!, y: vy! })
@@ -948,7 +1001,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     if (this.patrolDir !== 0 && Math.abs(this.x - this.anchorX) > w.leashRadius) {
       this.patrolDir = Math.sign(this.anchorX - this.x) || this.patrolDir
     }
-    body.velocity.x = this.patrolDir * w.speed
+    body.velocity.x = this.patrolDir * w.speed * this.speedMult
     if (body.blocked.left) this.patrolDir = 1
     if (body.blocked.right) this.patrolDir = -1
     this.setFlipX(this.patrolDir < 0)
@@ -965,7 +1018,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
   private moveGround(body: Phaser.Physics.Arcade.Body, targetVx: number, delta: number): void {
     void delta
-    body.velocity.x = Phaser.Math.Linear(body.velocity.x, targetVx, 0.16)
+    // Шаг 24: глубинная скорость — единая точка наземной локомоции.
+    body.velocity.x = Phaser.Math.Linear(body.velocity.x, targetVx * this.speedMult, 0.16)
   }
 
   private flyPatrol(): void {
@@ -1004,8 +1058,10 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     const toX = tx - this.x
     const toY = ty - this.y
     const len = Math.hypot(toX, toY) || 1
-    body.velocity.x = Phaser.Math.Linear(body.velocity.x, (toX / len) * speed, 0.08)
-    body.velocity.y = Phaser.Math.Linear(body.velocity.y, (toY / len) * speed, 0.08)
+    // Шаг 24: глубинная скорость — единая точка воздушной локомоции.
+    const v = speed * this.speedMult
+    body.velocity.x = Phaser.Math.Linear(body.velocity.x, (toX / len) * v, 0.08)
+    body.velocity.y = Phaser.Math.Linear(body.velocity.y, (toY / len) * v, 0.08)
     this.setFlipX(body.velocity.x < 0)
   }
 
@@ -1028,6 +1084,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
    * Урон по мобу. Возвращает фактически применённый урон (после брони).
    * dmgType: physical/acid/fire (панцирь боится только кислоту).
    * killer — кто бьёт (для памяти страха и туш).
+   * opts (шаг 24): knockForce — сила отброса (сильный удар/пике),
+   * resistMult — множитель на сопротивление брони (armorPierce).
    */
   takeDamage(
     amount: number,
@@ -1036,6 +1094,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     dmgType: DamageType = 'physical',
     killer: KillerKind = 'player',
     from?: Enemy,
+    opts?: { knockForce?: number; resistMult?: number },
   ): number {
     if (this.dead) return 0
 
@@ -1045,7 +1104,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       return 0
     }
 
-    const resist = armorResist(this.species, dmgType)
+    const resist = Math.max(0, armorResist(this.species, dmgType) * (opts?.resistMult ?? 1))
     const applied = Math.max(1, Math.round(amount * (1 - resist)))
     this.hp -= applied
     this.windupFx.clear()
@@ -1059,7 +1118,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     const body = this.body as Phaser.Physics.Arcade.Body
     const kr = this.species.knockbackResist
-    body.velocity.x += knockDirX * 260 * (1 - kr)
+    const knockForce = opts?.knockForce ?? 260
+    body.velocity.x += knockDirX * knockForce * (1 - kr)
     if (this.species.fly) body.velocity.y -= 60 * (1 - kr)
     else body.velocity.y = Math.min(body.velocity.y, -120 * (1 - kr))
 
@@ -1249,6 +1309,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       this.twin.setFrame(this.frame.name)
     }
     if (this.eliteGlow) this.eliteGlow.setPosition(this.x, this.y)
+    // Шаг 24: глубинное тление держится на мобе.
+    if (this.deepGlow) this.deepGlow.setPosition(this.x, this.y)
   }
 
   /** Обновить видимость силуэта (сцена знает радиус света). */
@@ -1294,6 +1356,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.windupFx?.destroy()
     this.drainBeamGfx?.destroy()
     this.eliteGlow?.destroy()
+    this.deepGlow?.destroy()
     super.destroy(fromScene)
   }
 }

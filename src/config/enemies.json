@@ -14,7 +14,10 @@
     "shell": "Бронепанцирь — территориальный танк: физический урон почти не берёт (armor.physical 0.85), нужна КИСЛОТА (acid 0 — «Кислотные железы»). Вместо бегства — свёртка: неуязвим и лечится.",
     "lava": "Лавовый ползун — охотник: кусает всё живое рядом, оставляет огненный след (trail: лужи горят dps, светятся в темноте, сами сгорают). Огонь не жжёт его (armor.fire 1).",
     "fire": "Огненный след жжёт игрока и мобов (кроме immune); урон тикает по tickMs пока цель в луже; свет лужи — динамическая дыра в маске тьмы.",
-    "gib": "Шаг 13 (Dead Cells): разрыв тел. Если убойный урон ≥ overkillShare·maxHp жертвы — туша НЕ остаётся: жертву РАЗРЫВАЕТ (мясные куски + двойной взрыв крови + большая декаль + съедобные сгустки clotsPerGib). На высоких уровнях роста каждый укус рвёт мясо — фонтан guts."
+    "gib": "Шаг 13 (Dead Cells): разрыв тел. Если убойный урон ≥ overkillShare·maxHp жертвы — туша НЕ остаётся: жертву РАЗРЫВАЕТ (мясные куски + двойной взрыв крови + большая декаль + съедобные сгустки clotsPerGib). На высоких уровнях роста каждый укус рвёт мясо — фонтан guts.",
+    "depthScale": "Шаг 24: ГЛУБИННОЕ УСИЛЕНИЕ — «чем ниже мобы, тем сильнее». При спавне моб получает множители по полосе биома (bandHp/bandDmg/bandSpeed — живучесть/урон/скорость; индексы 0..5 = полосы gen.json biomeBands) и прибавку Эссенции bandEssence. Полоса ≥ glowFromBand — на мобе тлеет багровое глубинное сияние (читаемая угроза издали). Сильный удар (balance.json heavy.armorPierce) — ответ игрока брони глубины.",
+    "stalker": "Шаг 24: Глубинный сталкер — ХИЩНИК «как герой-монстр»: сухопутная молния, охотится стаями на слизней/нетопырей/кровососов И на игрока (detectRadius 250 — видит твой свет издалека). Быстрая погоня (215) и рывковый выпад; умный — при малом HP уходит и возвращается. Спрайт — нейро-генерация (scripts/gen-step24.mjs).",
+    "devourer": "Шаг 24: Пожиратель глубин — АПЕКС-хищник глубины: исполинская пасть (половина тела), толстая шкура, НЕ бегает никогда (flee: null) — бьётся до конца. Медленный, но выпад — как поезд: урон 24, стан-тяжесть. Съедает туши на месте и РАСТЁТ. Цель для сильного удара и пике — обычным укусом брать долго."
   },
   "gib": {
     "overkillShare": 0.75,
@@ -62,87 +65,119 @@
       [
         {
           "id": "slug",
-          "weight": 0.28
-        },
-        {
-          "id": "bat",
           "weight": 0.24
         },
         {
+          "id": "bat",
+          "weight": 0.2
+        },
+        {
           "id": "reaper",
-          "weight": 0.26
+          "weight": 0.24
         },
         {
           "id": "bloodsucker",
-          "weight": 0.22
+          "weight": 0.2
+        },
+        {
+          "id": "stalker",
+          "weight": 0.12
         }
       ],
       [
         {
           "id": "bat",
+          "weight": 0.12
+        },
+        {
+          "id": "reaper",
           "weight": 0.18
         },
         {
-          "id": "reaper",
-          "weight": 0.26
-        },
-        {
           "id": "bloodsucker",
-          "weight": 0.24
+          "weight": 0.18
         },
         {
           "id": "shell",
-          "weight": 0.32
+          "weight": 0.24
+        },
+        {
+          "id": "stalker",
+          "weight": 0.28
         }
       ],
       [
         {
           "id": "bat",
+          "weight": 0.08
+        },
+        {
+          "id": "bloodsucker",
           "weight": 0.14
         },
         {
-          "id": "bloodsucker",
-          "weight": 0.2
-        },
-        {
           "id": "shell",
-          "weight": 0.3
+          "weight": 0.22
         },
         {
           "id": "lava",
-          "weight": 0.36
+          "weight": 0.26
+        },
+        {
+          "id": "stalker",
+          "weight": 0.18
+        },
+        {
+          "id": "devourer",
+          "weight": 0.12
         }
       ],
       [
         {
           "id": "bat",
-          "weight": 0.22
+          "weight": 0.1
         },
         {
           "id": "bloodsucker",
-          "weight": 0.2
+          "weight": 0.16
         },
         {
           "id": "shell",
-          "weight": 0.26
+          "weight": 0.2
         },
         {
           "id": "lava",
-          "weight": 0.32
+          "weight": 0.22
+        },
+        {
+          "id": "stalker",
+          "weight": 0.18
+        },
+        {
+          "id": "devourer",
+          "weight": 0.14
         }
       ],
       [
         {
           "id": "bloodsucker",
-          "weight": 0.24
+          "weight": 0.14
         },
         {
           "id": "shell",
-          "weight": 0.34
+          "weight": 0.2
         },
         {
           "id": "lava",
-          "weight": 0.42
+          "weight": 0.26
+        },
+        {
+          "id": "stalker",
+          "weight": 0.2
+        },
+        {
+          "id": "devourer",
+          "weight": 0.2
         }
       ]
     ]
@@ -174,6 +209,42 @@
       "alphaHit": 0.7,
       "alphaEat": 0.4,
       "alphaSqueak": 0.16
+    },
+    "depthScale": {
+      "bandHp": [
+        1,
+        1.2,
+        1.45,
+        1.75,
+        2.1,
+        2.5
+      ],
+      "bandDmg": [
+        1,
+        1.15,
+        1.35,
+        1.6,
+        1.85,
+        2.2
+      ],
+      "bandSpeed": [
+        1,
+        1.02,
+        1.05,
+        1.08,
+        1.1,
+        1.12
+      ],
+      "bandEssence": [
+        0,
+        1,
+        2,
+        3,
+        5,
+        7
+      ],
+      "glowFromBand": 2,
+      "glowAlpha": 0.14
     }
   },
   "species": {
@@ -628,7 +699,161 @@
         "fps": 7,
         "deadFrame": 3
       }
+    },
+    "stalker": {
+      "name": "Глубинный сталкер",
+      "role": "hunter",
+      "hunts": [
+        "slug",
+        "bat",
+        "bloodsucker"
+      ],
+      "fears": [
+        "devourer"
+      ],
+      "hp": 42,
+      "size": [
+        26,
+        15
+      ],
+      "texture": "mob-stalker",
+      "meat": 50,
+      "xp": 55,
+      "detectRadius": 250,
+      "knockbackResist": 0.3,
+      "twinAlpha": 0.55,
+      "armor": {
+        "physical": 0.1,
+        "acid": 0,
+        "fire": 0.3
+      },
+      "noiseColor": "#e23a4e",
+      "patrol": {
+        "speed": 60,
+        "pauseMs": [
+          400,
+          1000
+        ],
+        "moveMs": [
+          600,
+          1400
+        ],
+        "hopEveryMs": 700,
+        "leashRadius": 260
+      },
+      "pursue": {
+        "speed": 215,
+        "giveUpRange": 420
+      },
+      "flee": {
+        "speed": 240,
+        "hopChance": 0.4,
+        "hopVelocityY": -300
+      },
+      "counter": null,
+      "attack": {
+        "type": "lunge",
+        "windupMs": 280,
+        "lungeSpeed": 400,
+        "activeMs": 240,
+        "damage": 13,
+        "damageType": "physical",
+        "cooldownMs": 1600,
+        "triggerRange": 110,
+        "corneredOnly": false,
+        "stuckMs": 0
+      },
+      "curl": null,
+      "scavenge": {
+        "corpseSense": 200,
+        "chewMs": 300,
+        "portion": 5,
+        "healPerChew": 4
+      },
+      "fly": null,
+      "_flavor": "Тонкие лапы-пружины и нить багровых огней по хребту. Видит твой свет раньше, чем ты видишь его глаза.",
+      "essence": 8,
+      "anim": {
+        "_doc": "Шаг 20: анимация вида — 4 кадра 68×46 (scripts/process-mobs.mjs), walk-цикл. fps — темп ходьбы/полёта; deadFrame — кадр позы туши (Eating carcass). Стиль секции — простые листья (enemies.ts кастует напрямую, без unwrapDoc).",
+        "fps": 11,
+        "deadFrame": 3
+      }
+    },
+    "devourer": {
+      "name": "Пожиратель глубин",
+      "role": "hunter",
+      "hunts": [
+        "slug",
+        "bat",
+        "bloodsucker",
+        "shell",
+        "stalker"
+      ],
+      "fears": [],
+      "hp": 130,
+      "size": [
+        30,
+        20
+      ],
+      "texture": "mob-devourer",
+      "meat": 90,
+      "xp": 95,
+      "detectRadius": 230,
+      "knockbackResist": 0.75,
+      "twinAlpha": 0.6,
+      "armor": {
+        "physical": 0.3,
+        "acid": 0.15,
+        "fire": 0.5
+      },
+      "noiseColor": "#e2763a",
+      "patrol": {
+        "speed": 26,
+        "pauseMs": [
+          1200,
+          2600
+        ],
+        "moveMs": [
+          1000,
+          2200
+        ],
+        "hopEveryMs": 0,
+        "leashRadius": 200
+      },
+      "pursue": {
+        "speed": 150,
+        "giveUpRange": 380
+      },
+      "flee": null,
+      "counter": null,
+      "attack": {
+        "type": "lunge",
+        "windupMs": 470,
+        "lungeSpeed": 300,
+        "activeMs": 300,
+        "damage": 24,
+        "damageType": "physical",
+        "cooldownMs": 2500,
+        "triggerRange": 90,
+        "corneredOnly": false,
+        "stuckMs": 0
+      },
+      "curl": null,
+      "scavenge": {
+        "corpseSense": 260,
+        "chewMs": 260,
+        "portion": 8,
+        "healPerChew": 6
+      },
+      "fly": null,
+      "_flavor": "Пасть — половина тела, ряды костяных клыков и багровое горло. Не отступает. Не устаёт. Глубина кормит его.",
+      "essence": 15,
+      "anim": {
+        "_doc": "Шаг 20: анимация вида — 4 кадра 68×46 (scripts/process-mobs.mjs), walk-цикл. fps — темп ходьбы/полёта; deadFrame — кадр позы туши (Eating carcass). Стиль секции — простые листья (enemies.ts кастует напрямую, без unwrapDoc).",
+        "fps": 5,
+        "deadFrame": 3
+      }
     }
   },
-  "_doc_essence_note": "Шаг 11: essence — Эссенция Гнезда за убийство этого вида (валюта мета-прогрессии). Баланс по опасности вида."
+  "_doc_essence_note": "Шаг 11: essence — Эссенция Гнезда за убийство этого вида (валюта мета-прогрессии). Баланс по опасности вида. Шаг 24: глубже — жирнее: eco.depthScale.bandEssence прибавляется за глубину убийства."
 }

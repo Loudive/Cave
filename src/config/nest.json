@@ -1,5 +1,5 @@
 {
-  "_doc": "Шаг 11 — мета-прогрессия «Гнездо». Экономика Эссенции и древо навыков единственного героя (мышь-планер). Валюта: Эссенция за убийства (species.essence в enemies.json) и за рекорд глубины. Древо: 5 веток (Хищник, Плоть, Симбиоз, Тени, Гены) по 15 узлов, 3 типа: stat (числа), ability (пассивные способности), key (ключевые мутации передвижения). Ветка открывается глубиной unlockDepthM; узел требует ЛЮБОЙ узел предыдущего тира своей ветки (tier, 5 тиров по 3). Цены в Эссенции; полный древо ≈ 1900 Эссенции ≈ 25-35 забегов.",
+  "_doc": "Шаг 11 — мета-прогрессия «Гнездо». Шаг 24 — ЭКОНОМИКА ПЕРЕРАБОТАНА: stat-узлы качаются до 3 рангов (ranks), ранг N стоит rankCostMult^N от базовой цены; тиры 4-5 дороже (×1.4); тир 3+ требует tierReqNodes узлов предыдущего тира. Полное древо ≈ 6600 Эссенции ≈ 30-40 забегов — вершина каждой ветки теперь долгая цель. Валюта: Эссенция за убийства (species.essence + глубинный бонус), поедание и рекорд глубины.",
   "economy": {
     "_doc": "Курс Эссенции: eliteEssenceMult — множитель награды за уникального моба; depthMetersPerEssence — каждый столько метров рекорда глубины = 1 Эссенция в конце забега; essencePerEaten — плата за рациональность (за каждого съеденного мобf, поедание туш).",
     "eliteEssenceMult": {
@@ -13,6 +13,14 @@
     "essencePerEaten": {
       "_doc": "Эссенция за каждого моба, ПОЕДЕННОГО (не просто убитого) — стимул доедать, гайд: «ты хищник».",
       "value": 1
+    },
+    "rankCostMult": {
+      "_doc": "Шаг 24: ранг 2+ узла стоит во столько раз дороже предыдущего (экспонента — ранги ощутимы, но не бесконечный гринд).",
+      "value": 2.1
+    },
+    "tierReqNodes": {
+      "_doc": "Шаг 24: сколько узлов предыдущего тира нужно купить, чтобы открылся этот (тиры 3+; тир 2 — по-прежнему любой один).",
+      "value": 2
     }
   },
   "save": {
@@ -79,7 +87,8 @@
           "effect": {
             "type": "bite",
             "value": 2
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "pred-2",
@@ -91,7 +100,8 @@
           "effect": {
             "type": "biteMult",
             "value": 1.1
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "pred-3",
@@ -115,7 +125,8 @@
           "effect": {
             "type": "biteRange",
             "value": 6
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "pred-5",
@@ -139,7 +150,8 @@
           "effect": {
             "type": "windupMult",
             "value": 0.85
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "pred-7",
@@ -163,7 +175,8 @@
           "effect": {
             "type": "biteArc",
             "value": 20
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "pred-9",
@@ -182,7 +195,7 @@
           "tier": 4,
           "type": "key",
           "name": "Пасть-капкан",
-          "cost": 32,
+          "cost": 45,
           "desc": "Укус станит на 300 мс и рвёт броню (физика ×0.5)",
           "effect": {
             "type": "capJaw",
@@ -194,19 +207,20 @@
           "tier": 4,
           "type": "stat",
           "name": "Голод охотника",
-          "cost": 30,
+          "cost": 42,
           "desc": "Урон укуса ×1.15",
           "effect": {
             "type": "biteMult",
             "value": 1.15
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "pred-12",
           "tier": 4,
           "type": "ability",
           "name": "Охота из тени",
-          "cost": 34,
+          "cost": 48,
           "desc": "Первый укус по мобу из темноты ×2",
           "effect": {
             "type": "nightPounce",
@@ -218,19 +232,20 @@
           "tier": 5,
           "type": "stat",
           "name": "Вершина пищевой цепи",
-          "cost": 55,
+          "cost": 77,
           "desc": "Укус +4",
           "effect": {
             "type": "bite",
             "value": 4
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "pred-14",
           "tier": 5,
           "type": "ability",
           "name": "Не отпускай",
-          "cost": 60,
+          "cost": 84,
           "desc": "Укушенные истекают кровью (6/с, 3с)",
           "effect": {
             "type": "parasite",
@@ -242,7 +257,7 @@
           "tier": 5,
           "type": "key",
           "name": "Гнев Гнезда",
-          "cost": 75,
+          "cost": 105,
           "desc": "Урон укуса ×1.3, Эссенция с убийств ×1.25",
           "effect": {
             "type": "wrath",
@@ -270,7 +285,8 @@
           "effect": {
             "type": "maxHp",
             "value": 12
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "flesh-2",
@@ -282,7 +298,8 @@
           "effect": {
             "type": "digest",
             "value": 1.15
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "flesh-3",
@@ -294,7 +311,8 @@
           "effect": {
             "type": "hungerMax",
             "value": 15
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "flesh-4",
@@ -318,7 +336,8 @@
           "effect": {
             "type": "armorPct",
             "value": 0.9
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "flesh-6",
@@ -330,7 +349,8 @@
           "effect": {
             "type": "hungerSlow",
             "value": 0.85
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "flesh-7",
@@ -342,7 +362,8 @@
           "effect": {
             "type": "maxHp",
             "value": 20
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "flesh-8",
@@ -366,14 +387,15 @@
           "effect": {
             "type": "armorPct",
             "value": 0.85
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "flesh-10",
           "tier": 4,
           "type": "ability",
           "name": "Жир регенерации",
-          "cost": 38,
+          "cost": 53,
           "desc": "Убийство лечит +6 HP",
           "effect": {
             "type": "hpOnKill",
@@ -385,19 +407,20 @@
           "tier": 4,
           "type": "stat",
           "name": "Вечный аппетит",
-          "cost": 36,
+          "cost": 50,
           "desc": "Максимум голода +25",
           "effect": {
             "type": "hungerMax",
             "value": 25
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "flesh-12",
           "tier": 4,
           "type": "key",
           "name": "Костяная броня",
-          "cost": 44,
+          "cost": 62,
           "desc": "Получаемый урон ×0.75, но вес: скорость ×0.95",
           "effect": {
             "type": "boneArmor",
@@ -409,19 +432,20 @@
           "tier": 5,
           "type": "stat",
           "name": "Гора мяса",
-          "cost": 60,
+          "cost": 84,
           "desc": "Максимум HP +35",
           "effect": {
             "type": "maxHp",
             "value": 35
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "flesh-14",
           "tier": 5,
           "type": "ability",
           "name": "Тяжёлый метаболизм",
-          "cost": 55,
+          "cost": 77,
           "desc": "Эссенция с поедания ×1.5",
           "effect": {
             "type": "essenceEatMult",
@@ -433,7 +457,7 @@
           "tier": 5,
           "type": "key",
           "name": "Сердце-насос",
-          "cost": 70,
+          "cost": 98,
           "desc": "Максимум HP +25 и лечение ×1.5",
           "effect": {
             "type": "heartPump",
@@ -461,7 +485,8 @@
           "effect": {
             "type": "lightMult",
             "value": 1.1
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "symb-2",
@@ -485,7 +510,8 @@
           "effect": {
             "type": "hungerSlow",
             "value": 0.9
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "symb-4",
@@ -497,7 +523,8 @@
           "effect": {
             "type": "lightMult",
             "value": 1.2
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "symb-5",
@@ -545,7 +572,8 @@
           "effect": {
             "type": "essenceKillMult",
             "value": 1.2
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "symb-9",
@@ -564,7 +592,7 @@
           "tier": 4,
           "type": "key",
           "name": "Мембранный свет",
-          "cost": 40,
+          "cost": 56,
           "desc": "Свет ×1.35, радиус дышит шире",
           "effect": {
             "type": "membraneGlow",
@@ -576,7 +604,7 @@
           "tier": 4,
           "type": "ability",
           "name": "Грибной доктор",
-          "cost": 36,
+          "cost": 50,
           "desc": "Стойки спор лечат вместо урона (+2/тик)",
           "effect": {
             "type": "sporeHeal",
@@ -588,19 +616,20 @@
           "tier": 4,
           "type": "stat",
           "name": "Симбионт-охотник",
-          "cost": 38,
+          "cost": 53,
           "desc": "Урон укуса ×1.1, свет ×1.1",
           "effect": {
             "type": "symbHunter",
             "value": 1
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "symb-13",
           "tier": 5,
           "type": "ability",
           "name": "Пламя-друг",
-          "cost": 55,
+          "cost": 77,
           "desc": "Огонь не жжёт, поджигает твои укусы (+4 урона горящим)",
           "effect": {
             "type": "fireFriend",
@@ -612,19 +641,20 @@
           "tier": 5,
           "type": "stat",
           "name": "Пульс Гнезда",
-          "cost": 58,
+          "cost": 81,
           "desc": "Свет ×1.25, голод ×0.85",
           "effect": {
             "type": "nestPulse",
             "value": 1
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "symb-15",
           "tier": 5,
           "type": "key",
           "name": "Дитя пещеры",
-          "cost": 72,
+          "cost": 101,
           "desc": "Пещера кормит: голод тает ×0.7, свет ×1.3",
           "effect": {
             "type": "caveChild",
@@ -652,7 +682,8 @@
           "effect": {
             "type": "speedMult",
             "value": 1.08
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "shadow-2",
@@ -676,7 +707,8 @@
           "effect": {
             "type": "jumpMult",
             "value": 1.08
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "shadow-4",
@@ -700,7 +732,8 @@
           "effect": {
             "type": "detectMult",
             "value": 0.85
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "shadow-6",
@@ -736,7 +769,8 @@
           "effect": {
             "type": "speedMult",
             "value": 1.12
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "shadow-9",
@@ -755,7 +789,7 @@
           "tier": 4,
           "type": "key",
           "name": "Нырок меж теней",
-          "cost": 42,
+          "cost": 59,
           "desc": "Планирование: падение ×0.65, дрейф ×1.3",
           "effect": {
             "type": "glideUpgrade",
@@ -767,7 +801,7 @@
           "tier": 4,
           "type": "ability",
           "name": "Удар из темноты",
-          "cost": 40,
+          "cost": 56,
           "desc": "Урон укуса +25% по мобам вне твоего света",
           "effect": {
             "type": "darkStrike",
@@ -779,19 +813,20 @@
           "tier": 4,
           "type": "stat",
           "name": "Кошачья гибкость",
-          "cost": 38,
+          "cost": 53,
           "desc": "Управление в воздухе ×1.25",
           "effect": {
             "type": "airControlMult",
             "value": 1.25
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "shadow-13",
           "tier": 5,
           "type": "key",
           "name": "Крыло ночи",
-          "cost": 58,
+          "cost": 81,
           "desc": "Планирование: падение ×0.55, дрейф ×1.45, прыжок ×1.1",
           "effect": {
             "type": "glideUpgrade",
@@ -803,7 +838,7 @@
           "tier": 5,
           "type": "ability",
           "name": "Паника стаи",
-          "cost": 55,
+          "cost": 77,
           "desc": "Убийство обращает соседей жертвы в бегство",
           "effect": {
             "type": "panicKill",
@@ -815,7 +850,7 @@
           "tier": 5,
           "type": "key",
           "name": "Ты — тьма",
-          "cost": 70,
+          "cost": 98,
           "desc": "Обнаружение ×0.7, скорость ×1.15, свет ×0.9 (цена хищника)",
           "effect": {
             "type": "becomeDark",
@@ -843,7 +878,8 @@
           "effect": {
             "type": "flowerSense",
             "value": 1
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "genes-2",
@@ -867,7 +903,8 @@
           "effect": {
             "type": "maxHp",
             "value": 8
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "genes-4",
@@ -891,7 +928,8 @@
           "effect": {
             "type": "xpMult",
             "value": 1.15
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "genes-6",
@@ -927,7 +965,8 @@
           "effect": {
             "type": "depthBonusMult",
             "value": 1.3
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "genes-9",
@@ -946,7 +985,7 @@
           "tier": 4,
           "type": "key",
           "name": "Лишний карман",
-          "cost": 45,
+          "cost": 63,
           "desc": "+1 слот мутаций",
           "effect": {
             "type": "extraSlot",
@@ -958,7 +997,7 @@
           "tier": 4,
           "type": "ability",
           "name": "Селекционер",
-          "cost": 42,
+          "cost": 59,
           "desc": "Шанс мутации +12%, вес редких выше",
           "effect": {
             "type": "dropChance",
@@ -970,19 +1009,20 @@
           "tier": 4,
           "type": "stat",
           "name": "Адаптивная плазма",
-          "cost": 40,
+          "cost": 56,
           "desc": "Получаемый урон ×0.9, опыт ×1.1",
           "effect": {
             "type": "adaptivePlasma",
             "value": 1
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "genes-13",
           "tier": 5,
           "type": "ability",
           "name": "Мутационный шторм",
-          "cost": 62,
+          "cost": 87,
           "desc": "Шанс мутации +15%, элитные гарантированно роняют",
           "effect": {
             "type": "mutationStorm",
@@ -994,19 +1034,20 @@
           "tier": 5,
           "type": "stat",
           "name": "Совершенный хищник",
-          "cost": 60,
+          "cost": 84,
           "desc": "Укус ×1.12, HP +15, опыт ×1.15",
           "effect": {
             "type": "perfectPredator",
             "value": 1
-          }
+          },
+          "ranks": 3
         },
         {
           "id": "genes-15",
           "tier": 5,
           "type": "key",
           "name": "Геном-архив",
-          "cost": 80,
+          "cost": 112,
           "desc": "+1 слот мутаций, постоянные гены сильнее ×1.25",
           "effect": {
             "type": "geneArchive",

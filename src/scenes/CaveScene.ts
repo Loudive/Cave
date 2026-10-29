@@ -13,7 +13,7 @@ import { Vfx } from '../systems/Vfx'
 import { DESIGN_W, DESIGN_H, uiZoom } from '../systems/RenderScale'
 import { Companion } from '../entities/Companion'
 import { GENES, loadGeneSave, saveGeneSave, grantGene, type GeneSave, type GeneDef } from '../config/genes'
-import { NEST } from '../config/nest'
+import { NEST, expandNestRanks } from '../config/nest'
 import { ANIMS } from '../config/anims'
 import { applyPerks, emptyRunPerks, type RunPerks } from '../systems/NestPerks'
 import { loadNestSave, updateNestSave, recordBestiary, collectGenome, type NestSave } from '../systems/NestSave'
@@ -77,6 +77,8 @@ export class CaveScene extends Phaser.Scene {
   private creatureLumen!: Phaser.GameObjects.Sprite
   /** Шаг 18: едва заметная биолюм-аура вокруг существа — НАД маской тьмы. */
   private creatureAura!: Phaser.GameObjects.Image
+  /** Шаг 24: багровое сияние-заряд сильного удара (живёт пока идёт замах). */
+  private heavyChargeGlow: Phaser.GameObjects.Image | null = null
   private debug!: DebugOverlay
   private miniMap!: MiniMap
   private fpsGuard!: FpsGuard
@@ -386,7 +388,7 @@ export class CaveScene extends Phaser.Scene {
 
     // Шаг 11: перки Гнезда применяются после генов — древо усиливает героя.
     this.nestProfile = loadNestSave()
-    this.perks = applyPerks(this.nestProfile.nodes, {
+    this.perks = applyPerks(expandNestRanks(this.nestProfile.ranks), {
       vitals: this.vitals,
       creature: this.creature,
       combat: this.combat,
@@ -401,7 +403,68 @@ export class CaveScene extends Phaser.Scene {
     this.combat.onBiteHit = (x, y, facing, killed) =>
       this.vfx.hitSplash(x, y, facing, killed)
 
-    this.hudBars = new Hud(this, this.vitals, this.mutations, () => this.combat.queueTouchBite())
+    // ── Шаг 24: джус сильного удара и пике ────────────────────────────
+    // Заряд: багровое сияние растёт под героем весь замах.
+    this.combat.onHeavyCharge = () => {
+      this.audio.play('hiss', 0.5)
+      if (this.heavyChargeGlow) this.heavyChargeGlow.destroy()
+      this.heavyChargeGlow = this.add.image(this.creature.x, this.creature.y, 'glow-red')
+        .setDepth(LIGHT.halo.depth)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setAlpha(0.28)
+        .setScale(0.5)
+      this.tweens.add({
+        targets: this.heavyChargeGlow,
+        alpha: { from: 0.22, to: 0.6 },
+        scale: { from: 0.5, to: 1.35 },
+        duration: BALANCE.heavy.windupMs,
+        ease: 'Quad.In',
+      })
+    }
+    this.combat.onHeavyRelease = (fired) => {
+      const glow = this.heavyChargeGlow
+      this.heavyChargeGlow = null
+      if (!glow) return
+      if (fired) {
+        // Заряд схлопывается в удар.
+        this.tweens.add({
+          targets: glow,
+          alpha: 0,
+          scale: 1.7,
+          duration: 160,
+          onComplete: () => glow.destroy(),
+        })
+      } else {
+        glow.destroy()
+      }
+    }
+    this.combat.onHeavyStrike = (x, y) => {
+      this.audio.play('eliteRoar', 0.6)
+      this.vfx.chromaticHit(1.2)
+      this.eco.ring(x, y, '#E23A4E', ENEMIES.eco.ring.alphaHit)
+      this.vfx.sparks(x, y, 14)
+    }
+    this.combat.onDiveStart = () => {
+      this.audio.play('hiss', 0.7)
+      this.vfx.wingSweep(this.creature.x, this.creature.y, 1.2)
+    }
+    this.combat.onDiveEnd = () => {
+      this.creature.diveTilt = false
+    }
+    this.combat.onDiveLand = (x, y, any) => {
+      this.audio.play(any ? 'eliteRoar' : 'fire', any ? 0.7 : 0.45)
+      this.blood.burst(x, y + 6, {
+        count: 16, dirDeg: 90, spreadDeg: 200, speedMult: 0.5,
+        texture: 'dust', sticky: false,
+      })
+      this.eco.ring(x, y, any ? '#E23A4E' : '#8A8894', ENEMIES.eco.ring.alphaHit)
+    }
+
+    this.hudBars = new Hud(
+      this, this.vitals, this.mutations,
+      () => this.combat.queueTouchBite(),
+      () => this.combat.queueHeavy(),
+    )
 
     // Рост: существо visibly увеличивается, свет на миг вспыхивает.
     this.vitals.onLevelUp = (level) => {
@@ -496,9 +559,14 @@ export class CaveScene extends Phaser.Scene {
 
     // ── Ввод боя: J / ЛКМ (десктоп), тач-кнопка — через Hud ─────────────────
     kb.on('keydown-J', () => this.combat.queueKeyBite())
+    // Шаг 24: K / ПКМ — сильный удар; J в воздухе — пике (Combat сам
+    // решает по вертикальной скорости — см. update 'ready').
+    kb.on('keydown-K', () => this.combat.queueHeavy())
+    this.input.mouse?.disableContextMenu()
     if (!this.sys.game.device.input.touch) {
       this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
         if (pointer.button === 0) this.combat.queueKeyBite()
+        if (pointer.button === 2) this.combat.queueHeavy()
       })
     }
 
@@ -543,8 +611,8 @@ export class CaveScene extends Phaser.Scene {
     uiAttach(this, this.essenceHud)
 
     const controlsHint = this.add.text(12, height - 14,
-      'A/D — бег · SPACE — прыжок · W — план · J/ЛКМ — укус · R — та же пещера · N — новая · M — карта · Q — качество · ESC — меню',
-      { fontFamily: 'monospace', fontSize: '11px', color: '#8A8894' },
+      'A/D бег · SPACE прыжок · W план · J/ЛКМ укус · K/ПКМ сильный · J в падении — пике · R та же · N новая · M карта · ESC меню',
+      { fontFamily: 'monospace', fontSize: '10px', color: '#8A8894' },
     )
       .setScrollFactor(0)
       .setOrigin(0, 1)
@@ -759,6 +827,10 @@ export class CaveScene extends Phaser.Scene {
       this.motes.update(this, this.creature.x, this.creature.y)
       // Шаг 20: аэро-джус существа — шлейф крыльев + взмахи (см. ниже).
       this.updateAero(time)
+      // Шаг 24: заряд сильного удара держится на герое (замах можно вести в движении).
+      if (this.heavyChargeGlow) {
+        this.heavyChargeGlow.setPosition(this.creature.x, this.creature.y)
+      }
 
       // HUD: глубина + биом + seed (как в шаге 4).
       const meters = Math.max(0, Math.floor(this.cave.depthOffsetMeters + this.creature.y * GEN.map.metersPerPixel))
@@ -967,10 +1039,11 @@ export class CaveScene extends Phaser.Scene {
     if (killer === 'player') {
       this.vitals.eatenCount++
       // Шаг 11: Эссенция Гнезда за убийство (элита ценнее, узлы усиливают).
+      // Шаг 24: глубина жирнее — bandEssence за полосу биома жертвы.
       const sp = ENEMIES.species[enemy.speciesId]
       const essenceGain = Math.round(
         sp.essence * (enemy.elite ? NEST.eliteEssenceMult : 1) * this.perks.essenceKillMult,
-      ) + this.perks.essenceOnKill
+      ) + this.perks.essenceOnKill + enemy.essenceBonus
       this.addEssence(Math.max(1, essenceGain), enemy.x, enemy.y)
       // Шаг 11: «Жир регенерации» — убийство лечит.
       if (this.perks.hpOnKill > 0) this.vitals.heal(this.perks.hpOnKill)
@@ -1327,6 +1400,9 @@ export class CaveScene extends Phaser.Scene {
     if (this.enemies.length >= BALANCE.spawn.maxAlive) return null
     const enemy = new Enemy(this, wx, wy, speciesId, this.enemyCallbacks())
     enemy.nestIndex = nestIndex
+    // Шаг 24: глубинное усиление — «чем ниже мобы, тем сильнее»
+    // (множители полосы биома + багровое сияние + бонус Эссенции).
+    enemy.applyDepthScale(this.cave.depthOffsetMeters + wy * GEN.map.metersPerPixel)
     if (this.tileLayers) {
       this.physics.add.collider(enemy, this.tileLayers.solid)
     }

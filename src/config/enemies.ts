@@ -191,6 +191,22 @@ export interface EcoRingConfig {
   alphaSqueak: number
 }
 
+/** Шаг 24: глубинное усиление — «чем ниже мобы, тем сильнее». */
+export interface DepthScaleConfig {
+  /** Множители живучести по полосам биома (индекс 0..5). */
+  bandHp: number[]
+  /** Множители урона по полосам. */
+  bandDmg: number[]
+  /** Множители скорости по полосам. */
+  bandSpeed: number[]
+  /** Прибавка Эссенции за убийство по полосам. */
+  bandEssence: number[]
+  /** С этого биома на мобе тлеет глубинное багровое сияние. */
+  glowFromBand: number
+  /** Альфа сияния (0..1). */
+  glowAlpha: number
+}
+
 export interface EcoConfig {
   /** Мобы дерутся между собой, только если игрок дальше этого радиуса. */
   peaceRadius: number
@@ -205,6 +221,8 @@ export interface EcoConfig {
   growPerMeal: number
   maxMobScale: number
   ring: EcoRingConfig
+  /** Шаг 24: глубинное усиление мобов (по полосам биома). */
+  depthScale: DepthScaleConfig
 }
 
 export interface EnemiesConfig {
