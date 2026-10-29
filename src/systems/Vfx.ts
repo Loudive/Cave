@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import { QUALITY } from './quality'
 import { LIGHT } from '../config/light'
 import { ChromaticPipeline } from './ChromaticPipeline'
+import { uiZoom } from './RenderScale'
 import type { BloodFx } from './BloodFx'
 import type { HitStop } from './HitStop'
 import { VFX } from '../config/vfx'
@@ -154,10 +155,12 @@ export class Vfx {
     const cam = this.scene.cameras.main
     // Шаг 20: зум — МНОЖИТЕЛЬ базового (vfx.json cameraBaseZoom = 2):
     // раньше возврат был к абсолютной 1 — при базовом зуме 2 слоу-мо
-    // «отдаляло» бы камеру вдвое от обычного вида.
-    cam.zoomTo(VFX.cameraBaseZoom * VFX.slowMoZoom, VFX.slowMoZoomInMs, Phaser.Math.Easing.Sine.Out)
+    // «отдаляло» бы камеру вдвое от обычного вида. Шаг 23: база ещё и × k
+    // (рендер-масштаб канваса) — worldView не меняется ни при k, ни при
+    // пульсе.
+    cam.zoomTo(uiZoom(VFX.cameraBaseZoom * VFX.slowMoZoom), VFX.slowMoZoomInMs, Phaser.Math.Easing.Sine.Out)
     this.scene.time.delayedCall(VFX.slowMoMs + 20, () =>
-      cam.zoomTo(VFX.cameraBaseZoom, VFX.slowMoZoomOutMs, Phaser.Math.Easing.Sine.In))
+      cam.zoomTo(uiZoom(VFX.cameraBaseZoom), VFX.slowMoZoomOutMs, Phaser.Math.Easing.Sine.In))
     this.chromaticHit(1.4)
   }
 

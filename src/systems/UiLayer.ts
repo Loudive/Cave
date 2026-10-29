@@ -1,4 +1,5 @@
 import Phaser from 'phaser'
+import { RENDER_SCALE } from './RenderScale'
 
 /**
  * UiLayer — шаг 20: экран-слой HUD при зуме камеры.
@@ -62,11 +63,17 @@ export function uiRootSyncZoom(scene: Phaser.Scene): void {
   if (!root) return
   const z = scene.cameras.main.zoom
   if (!Number.isFinite(z) || z <= 0) return
+  // Шаг 23: канвас живёт в 960k×540k (backing px), а координаты детей
+  // uiRoot — в ДИЗАЙН-пикселях 960×540. Итоговый масштаб слоя = k/z:
+  // экранная позиция ребёнка (x,y) = k·(x,y) — ровно как выглядел HUD
+  // до рендер-масштаба, но в k раз плотнее. Формула позиции не меняется
+  // (выведена для тождества S≡x при s=1/z; при s=k/z даёт S≡k·x,
+  // C = центр канваса в его собственных px = 480k/270k).
   if (z === 1) {
-    root.setPosition(0, 0).setScale(1)
+    root.setPosition(0, 0).setScale(RENDER_SCALE)
     return
   }
   const cx = scene.scale.width / 2
   const cy = scene.scale.height / 2
-  root.setPosition(cx * (1 - 1 / z), cy * (1 - 1 / z)).setScale(1 / z)
+  root.setPosition(cx * (1 - 1 / z), cy * (1 - 1 / z)).setScale(RENDER_SCALE / z)
 }

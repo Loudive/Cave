@@ -21,6 +21,7 @@
     "revealTiles": 8,
     "bigMapHoldMs": 260,
     "bigMapScale": 4.6,
+    "miniDefaultOn": false,
     "miniMargin": 8,
     "miniTileScale": 2,
     "miniFogColor": 1513254,

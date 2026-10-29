@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import { QUALITY } from './quality'
 import { FPS } from '../config/fps'
 import { uiAttach } from './UiLayer'
+import { DESIGN_W, DESIGN_H } from './RenderScale'
 
 /**
  * FpsGuard — шаг 10 (перфоманс): наблюдатель кадровой частоты.
@@ -58,7 +59,9 @@ export class FpsGuard {
 
   /** Тихий тост в углу: честно объясняем, что произошло. */
   private showToast(): void {
-    const { width, height } = this.scene.scale
+    // Шаг 23: тост — в дизайн-координатах (экран-слой uiRoot × k).
+    const width = DESIGN_W
+    const height = DESIGN_H
     this.toast = this.scene.add.text(width / 2, height - 44,
       'Качество снижено для стабильных 60 FPS — вернуть: Q',
       {

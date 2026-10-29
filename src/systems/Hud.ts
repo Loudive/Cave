@@ -4,6 +4,7 @@ import { QUALITY } from './quality'
 import { rarityColor, type Mutations } from './Mutations'
 import type { Vitals } from './Vitals'
 import { uiAttach } from './UiLayer'
+import { DESIGN_W, DESIGN_H } from './RenderScale'
 
 /**
  * Hud — шаг 6: состояние хищника.
@@ -63,7 +64,7 @@ export class Hud {
     // Шаг 13: серия укусов — текст + полоска затухания окна.
     this.comboGfx = scene.add.graphics().setScrollFactor(0).setDepth(DEPTH_HUD)
     uiAttach(scene, this.comboGfx)
-    this.comboText = scene.add.text(scene.scale.width / 2, COMBO_Y, '', {
+    this.comboText = scene.add.text(DESIGN_W / 2, COMBO_Y, '', {
       fontFamily: 'monospace',
       fontSize: '14px',
       fontStyle: 'bold',
@@ -87,7 +88,7 @@ export class Hud {
     }).setScrollFactor(0).setDepth(DEPTH_HUD).setOrigin(1, 1)
     uiAttach(scene, this.qualityText)
     // Правый нижний угол, на строке подсказок управления (мини-карта выше).
-    this.qualityText.setPosition(scene.scale.width - 10, scene.scale.height - 2)
+    this.qualityText.setPosition(DESIGN_W - 10, DESIGN_H - 2)
     this.refreshQualityText()
 
     scene.input.keyboard?.on('keydown-Q', () => {
@@ -104,8 +105,9 @@ export class Hud {
 
   /** Кнопка укуса (мобилки): справа снизу, большой тач-таргет ≥44px. */
   private buildBiteButton(): void {
-    const w = this.scene.scale.width
-    const h = this.scene.scale.height
+    // Шаг 23: тач-кнопка — в дизайн-координатах (экран-слой uiRoot × k).
+    const w = DESIGN_W
+    const h = DESIGN_H
     const r = 34
     const circle = this.scene.add.circle(w - 52, h - 60, r, 0xe23a4e, 0.22)
       .setScrollFactor(0)
@@ -287,7 +289,7 @@ export class Hud {
       const g = this.comboGfx
       g.clear()
       if (show) {
-        const x = this.scene.scale.width / 2 - COMBO_BAR_W / 2
+        const x = DESIGN_W / 2 - COMBO_BAR_W / 2
         const y = COMBO_Y + 18
         g.fillStyle(0x1a1a26, 0.9)
         g.fillRect(x, y, COMBO_BAR_W, 3)

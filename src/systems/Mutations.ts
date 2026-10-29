@@ -4,6 +4,7 @@ import { BALANCE } from '../config/balance'
 import { hexInt } from '../config/light'
 import type { Vitals } from './Vitals'
 import { uiAttach } from './UiLayer'
+import { DESIGN_W } from './RenderScale'
 
 /**
  * Mutations — шаг 6: забеговые мутации, выпадающие из туш с шансом
@@ -275,7 +276,8 @@ export class Mutations {
 
   /** Баннер-карточка мутации: имя, редкость, эффект. */
   private showBanner(def: MutationDef): void {
-    const { width } = this.scene.scale
+    // Шаг 23: баннер — в дизайн-координатах (экран-слой uiRoot × k).
+    const width = DESIGN_W
     const color = MUTATIONS.rarityColors[def.rarity]
 
     if (this.banner) {

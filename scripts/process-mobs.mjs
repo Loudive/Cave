@@ -199,6 +199,59 @@ async function crop(img, box) {
   return { buf, w: box.width, h: box.height }
 }
 
+/**
+ * Шаг 23: деспекл кадра — убрать ОТСОЕДИНЁННЫЕ мусорные островки.
+ * Жалоба игрока: «когда моб поворачивается — видна белая неопознанная
+ * часть» (обломки чужой отрисовки у кадра 3 кровососа: 37+29 px,
+ * прилипшие при дилатации слайсера). Правило то же, что в
+ * scripts/despeckle-mobs.py: островки < KEEP_SHARE площади главного
+ * тела — мусор. Настоящие части тела (лапы/крылья) соединены с телом
+ * или крупнее порога.
+ */
+const DESPECKLE_KEEP_SHARE = 0.12
+const DESPECKLE_ALPHA_MIN = 40
+
+async function despeckle(frame) {
+  const { data: px, info } = await sharp(frame.buf).ensureAlpha().raw()
+    .toBuffer({ resolveWithObject: true })
+  const w = info.width
+  const h = info.height
+  const solid = (i) => px[i * 4 + 3] > DESPECKLE_ALPHA_MIN
+  // Связные компоненты 4-связности по альфе.
+  const seen = new Uint8Array(w * h)
+  const comps = []
+  const stack = []
+  for (let start = 0; start < w * h; start++) {
+    if (seen[start] || !solid(start)) continue
+    stack.length = 0
+    stack.push(start)
+    seen[start] = 1
+    const cells = []
+    while (stack.length) {
+      const i = stack.pop()
+      cells.push(i)
+      const x = i % w
+      const y = (i / w) | 0
+      if (x > 0 && !seen[i - 1] && solid(i - 1)) { seen[i - 1] = 1; stack.push(i - 1) }
+      if (x < w - 1 && !seen[i + 1] && solid(i + 1)) { seen[i + 1] = 1; stack.push(i + 1) }
+      if (y > 0 && !seen[i - w] && solid(i - w)) { seen[i - w] = 1; stack.push(i - w) }
+      if (y < h - 1 && !seen[i + w] && solid(i + w)) { seen[i + w] = 1; stack.push(i + w) }
+    }
+    comps.push(cells)
+  }
+  comps.sort((a, b) => b.length - a.length)
+  if (comps.length < 2) return frame
+  const mainArea = comps[0].length
+  let killed = 0
+  for (let c = 1; c < comps.length; c++) {
+    if (comps[c].length >= mainArea * DESPECKLE_KEEP_SHARE) continue
+    for (const i of comps[c]) { px[i * 4 + 3] = 0; killed++ }
+  }
+  if (!killed) return frame
+  const buf = await sharp(px, { raw: { width: w, height: h, channels: 4 } }).png().toBuffer()
+  return { buf, w, h }
+}
+
 /** Собрать лист: единый масштаб по ЦЕЛЕВОЙ высоте вида; низ=44, центр клетки. */
 async function buildSheet(id, frames) {
   const target = SPECIES[id].drawH
@@ -283,7 +336,10 @@ async function main() {
       continue
     }
     const frames = []
-    for (const i of pick) frames.push(await crop(img, ordered[i]))
+    for (const i of pick) {
+      const cropped = await crop(img, ordered[i])
+      frames.push(await despeckle(cropped))
+    }
     await buildSheet(id, frames)
   }
   await contactPreview()

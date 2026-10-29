@@ -83,12 +83,22 @@ export const ASSETS: AssetEntry[] = [
 ]
 
 /**
+ * Версия ассетов для cache-busting (шаг 23, рейк): URL файлов не менялся
+ * между деплоями — браузер игрока (и наш тестовый agent-browser) подавал
+ * СТАРЫЕ mob-*.png из кэша после обновления игры на сервере («белый
+ * обломок никуда не делся», а на диске файл уже чистый). Поднимай версию
+ * при КАЖДОМ изменении файлов в assets/ (мобы, герой, фоны, glows).
+ */
+const ASSET_VERSION = 's23'
+
+/**
  * URL файла ассета. publicDir='assets' в Vite кладёт PNG в корень dist,
  * поэтому путь относительный: на /Cave/ он даст /Cave/glow-cyan.png,
  * на локальном превью /game/ — /game/glow-cyan.png, в dev — /glow-cyan.png.
+ * ?v= — гарантия, что после деплоя игрок увидит НОВЫЕ файлы, а не кэш.
  */
 export function assetUrl(file: string): string {
-  return file
+  return `${file}?v=${ASSET_VERSION}`
 }
 
 /** Шаг 11: размер кадра листов героя (см. scripts/process-hero.mjs). */

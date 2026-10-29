@@ -14,6 +14,7 @@ import Phaser from 'phaser'
 import type { CaveData } from '../gen/cave'
 import { GEN, bandColorInt } from '../config/gen'
 import { uiAttach } from './UiLayer'
+import { DESIGN_W, DESIGN_H } from './RenderScale'
 
 const COL = {
   air: 0x1b1b26,
@@ -44,7 +45,8 @@ export class MiniMap {
   private readonly left: number
   private readonly top: number
   private readonly tileScale: number
-  private visible = true
+  /** Шаг 23: мини-карта СКРЫТА по умолчанию (см. конструктор). */
+  private visible = false
 
   // ── Шаг 13: туман войны ──────────────────────────────────────────────────
   private readonly explored: Uint8Array
@@ -64,7 +66,10 @@ export class MiniMap {
     private scene: Phaser.Scene,
     private cave: CaveData,
   ) {
-    const { width, height } = scene.scale
+    // Шаг 23: экранные координаты мини-карты — ДИЗАЙН-пиксели 960×540
+    // (uiRoot × k на экране); scene.scale теперь 960k×540k.
+    const width = DESIGN_W
+    const height = DESIGN_H
     const M = GEN.map
     this.tileScale = M.miniTileScale
     const margin = M.miniMargin
@@ -125,6 +130,17 @@ export class MiniMap {
     uiAttach(scene, this.dot)
 
     this.buildBigMap(width, height)
+
+    // Шаг 23 («чёрный квадрат ещё есть»): мини-карта СКРЫТА по умолчанию.
+    // Панель 370×232 — треть экрана тёмно-синей заливки: даже с рамкой и
+    // подписью (шаг 21) на экране игрока она читалась как ЧЁРНЫЙ КВАДРАТ
+    // (скриншот игрока: «большой тёмный прямоугольник без рамки и
+    // деталей» — 1px рамка и 9px подпись тонут при FIT-растяжении).
+    // Карта никуда не делась: короткое M — показать/скрыть мини-карту,
+    // удержание M — полная карта по центру; строка подсказок внизу
+    // напоминает «M — карта». Туман войны копится и в скрытом виде —
+    // открывается всегда актуальная карта.
+    if (!M.miniDefaultOn) this.setVisible(false)
 
     const kb = scene.input.keyboard
     kb?.on('keydown-M', (e: KeyboardEvent) => {

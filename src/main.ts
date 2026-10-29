@@ -3,6 +3,7 @@ import { BootScene } from './scenes/BootScene'
 import { MenuScene } from './scenes/MenuScene'
 import { CaveScene } from './scenes/CaveScene'
 import { NestScene } from './scenes/NestScene'
+import { DESIGN_W, DESIGN_H, RENDER_SCALE } from './systems/RenderScale'
 
 /**
  * Cave Devourer — точка входа.
@@ -13,13 +14,22 @@ import { NestScene } from './scenes/NestScene'
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
   parent: 'app',
-  width: 960,
-  height: 540,
+  // Шаг 23 («картинка мутная, низкая»): канвас в ДИЗАЙН-разрешении × k
+  // (systems/RenderScale.ts). 960×540 растягивался FIT'ом на весь экран
+  // браузерным билинеем — каждый пиксель игры превращался в пятно 2×2+.
+  // Теперь 960k×540k: на 1080p это ровно 1920×1080 (попиксельно 1:1),
+  // зум камеры умножается на k (мир виден тот же), а браузеру остаётся
+  // только даунскейл или 1:1 — растяжения-«мыла» больше нет.
+  width: DESIGN_W * RENDER_SCALE,
+  height: DESIGN_H * RENDER_SCALE,
   backgroundColor: '#0B0B10',
   // Шаг 10 (перфоманс): просим дискретный GPU, где он есть; пиксельные
   // координаты без сглаживания субпикселей (арт — пиксельный, 16px тайлы).
   powerPreference: 'high-performance',
   roundPixels: true,
+  // Шаг 23: nearest-выборка текстур (пиксель-арт не размывается при
+  // зуме 2k) — стиль проекта «супер-тёмная пиксельная пещера».
+  pixelArt: true,
   physics: {
     default: 'arcade',
     arcade: {
@@ -35,6 +45,27 @@ const config: Phaser.Types.Core.GameConfig = {
 }
 
 const game = new Phaser.Game(config)
+
+// ── Шаг 23: резкий текст при рендер-масштабе k ─────────────────────────────
+//
+// Все тексты создаются через scene.add.text (фабрика GameObjects). Текстура
+// глифов рендерится 1:1 к fontSize и потом МАСШТАБИРУЕТСЯ камерой/uiRoot —
+// при k=2 буквы были бы в 2 раза мягче экрана. Один патч фабрики ставит
+// resolution = k КАЖДОМУ тексту (включая будущие — всплывающие числа,
+// баннеры, сцены меню/гнезда): текстура в k раз плотнее, размер на экране
+// тот же, но попиксельно резкий. Слой один, кэш шрифтов не трогаем.
+if (RENDER_SCALE > 1) {
+  type FactoryPatch = { text?: (...args: unknown[]) => Phaser.GameObjects.Text }
+  const proto = Phaser.GameObjects.GameObjectFactory.prototype as unknown as FactoryPatch
+  const originalText = proto.text
+  if (typeof originalText === 'function') {
+    proto.text = function (this: Phaser.GameObjects.GameObjectFactory, ...args: unknown[]) {
+      const t = originalText.apply(this, args)
+      t.setResolution(RENDER_SCALE)
+      return t
+    }
+  }
+}
 
 // ── Шаг 13: страховка всего игрового цикла ────────────────────────────────────
 //

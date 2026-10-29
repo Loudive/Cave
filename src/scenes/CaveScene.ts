@@ -10,6 +10,7 @@ import { Spores } from '../systems/Spores'
 import { FireTrail } from '../systems/FireTrail'
 import { Ecosystem, type NestRecord } from '../systems/Ecosystem'
 import { Vfx } from '../systems/Vfx'
+import { DESIGN_W, DESIGN_H, uiZoom } from '../systems/RenderScale'
 import { Companion } from '../entities/Companion'
 import { GENES, loadGeneSave, saveGeneSave, grantGene, type GeneSave, type GeneDef } from '../config/genes'
 import { NEST } from '../config/nest'
@@ -209,8 +210,9 @@ export class CaveScene extends Phaser.Scene {
     // Шаг 20: «приблизь камеру в два раза — хочу ближе видеть персонажа».
     // Базовый зум из vfx.json (ноль магических чисел). Свет/мошь/частицы
     // мировые — масштабируются автоматически; DarknessMask умножает
-    // координаты дыр на cam.zoom (правка там же, шаг 20).
-    this.cameras.main.setZoom(VFX.cameraBaseZoom)
+    // координаты дыр на cam.zoom (правка там же, шаг 20). Шаг 23: × k —
+    // рендер-масштаб канваса (960k×540k), worldView остаётся 480×270.
+    this.cameras.main.setZoom(uiZoom(VFX.cameraBaseZoom))
     this.cameras.main.fadeIn(450, 4, 4, 8)
     this.cameras.main.setBackgroundColor('#07070b')
 
@@ -501,7 +503,11 @@ export class CaveScene extends Phaser.Scene {
     }
 
     // ── UI ──────────────────────────────────────────────────────────────────
-    const { width, height } = this.scale
+    // Шаг 23: экранные объекты живут в ДИЗАЙН-координатах 960×540
+    // (systems/RenderScale.ts) — НЕ в scene.scale (теперь 960k×540k):
+    // uiRoot переносит дизайн-px на экран как k·(x,y).
+    const width = DESIGN_W
+    const height = DESIGN_H
     const vignette = this.add.image(width / 2, height / 2, 'vignette')
       .setDisplaySize(width * LIGHT.vignette.overscan, height * LIGHT.vignette.overscan)
       .setScrollFactor(0)
@@ -1062,7 +1068,7 @@ export class CaveScene extends Phaser.Scene {
       Math.round(BALANCE.blood.particlesPerKill[1] * d.bloodMultiplier),
     )
     this.blood.spawnClots(this.creature.x, this.creature.y, 3)
-    this.cameras.main.shake(d.fadeMs, BALANCE.hit.killShakePx / this.cameras.main.width)
+    this.cameras.main.shake(d.fadeMs, BALANCE.hit.killShakePx / DESIGN_W)
     this.cameras.main.flash(260, 226, 58, 78)
     // Шаг 11 (переработка): вместо мгновенного исчезновения — анимация
     // смерти (6 кадров, последний замирает), спрайт скрывается через
@@ -1127,7 +1133,9 @@ export class CaveScene extends Phaser.Scene {
   private lastDepthBonus = 0
   private lastRunEssence = 0
   private showRunSummary(kb: Phaser.Input.Keyboard.KeyboardPlugin): void {
-    const { width, height } = this.scale
+    // Шаг 23: оверлей — в дизайн-координатах (экран-слой uiRoot × k).
+    const width = DESIGN_W
+    const height = DESIGN_H
     const cam = this.cameras.main
     const depthPx = this.cameras.main.height
 
@@ -1997,7 +2005,8 @@ export class CaveScene extends Phaser.Scene {
 
   /** Баннер постоянного гена (отдельный от мутаций — золотой). */
   private showGeneBanner(def: GeneDef, color: string): void {
-    const { width } = this.scale
+    // Шаг 23: баннеры — в дизайн-координатах (экран-слой uiRoot).
+    const width = DESIGN_W
     const c = this.add.container(width / 2, 64).setDepth(26)
     // Шаг 20: баннеры — экранным слоем (твин y:78 внутри uiRoot = экранные px).
     uiAttach(this, c)
