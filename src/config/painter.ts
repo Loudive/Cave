@@ -28,9 +28,21 @@ export interface PainterConfig {
   }
   pattern: {
     patternSize: number
-    bands: number
-    bandWaviness: number
-    bandJitter: number
+    mottleBlobs: number
+    mottleAlpha: number
+    mottleRMin: number
+    mottleRMax: number
+    lensCount: number
+    lensLenMin: number
+    lensLenMax: number
+    lensThickMin: number
+    lensThickMax: number
+    lensAlpha: number
+    clasts: number
+    clastMax: number
+    cracks: number
+    crackLenMin: number
+    crackLenMax: number
     grainSpecks: number
     speckAlpha: number
   }
@@ -84,6 +96,6 @@ assertNumbers(PAINTER.smooth, 'painter.smooth', ['chaikinIters', 'jitterAmp', 'j
 assertNumbers(PAINTER.grid, 'painter.grid', ['scale'])
 assertNumbers(PAINTER.depth, 'painter.depth', ['nearAlpha', 'step', 'maxAlpha'])
 assertNumbers(PAINTER.chunks, 'painter.chunks', ['size', 'margin'])
-assertNumbers(PAINTER.pattern, 'painter.pattern', ['patternSize', 'bands'])
+assertNumbers(PAINTER.pattern, 'painter.pattern', ['patternSize', 'lensCount', 'mottleBlobs', 'cracks'])
 assertNumbers(PAINTER.erode, 'painter.erode', ['tileNearThr', 'tileDeepThr', 'tileNoiseScale', 'fineThr', 'fineNoiseScale', 'borderProtect'])
 assertNumbers(PAINTER.displace, 'painter.displace', ['floorAmp', 'otherAmp', 'megaFreq', 'megaShare', 'slowFreq', 'fastFreq', 'fastShare'])

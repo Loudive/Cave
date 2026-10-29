@@ -347,74 +347,123 @@ function displaceContours(polys: Pt[][], seed: number): void {
   }
 }
 
-// ── 4. Бесшовный паттерн породы со стратами ───────────────────────────────
+// ── 4. Бесшовный паттерн породы: ЛИНЗ-СТРАТА (шаг 17) ──────────────────────
 
-/** Y-координата верхней границы полосы b (для волнистых линий страт). */
-function bandYof(b: number, heights: number[], hScale: number): number {
-  let y = 0
-  for (let i = 0; i < b && i < heights.length; i++) y += heights[i] * hScale
-  return y
+/** Отрисовка со сдвигами ±size по обеим осям — тайл бесшовный. */
+function drawWrapped(size: number, draw: (ox: number, oy: number) => void): void {
+  for (let oy = -size; oy <= size; oy += size) {
+    for (let ox = -size; ox <= size; ox += size) draw(ox, oy)
+  }
 }
 
-/** Тайл-паттерн: горизонтальные напластования + зерно. */
+/**
+ * Тайл-паттерн породы (шаг 17 — жалоба «полоски на фоне» в коридорах):
+ * полноширинные горизонтальные напластования на БЛИЗКИХ стенах читались
+ * как ленты, когда коридор заполнял кадр. Новая схема — «порода без лент»:
+ *   • база rockMid + мягкая вертикальная волна (целые периоды — бесшовно);
+ *   • крупные пятна-объёмы (свет/тень) — мраморная неоднородность толщи;
+ *   • ЛИНЗ-СТРАТЫ: короткие напластования с заострёнными концами —
+ *     геология читается, ни одна «полоса» не пересекает тайл насквозь;
+ *   • галька-включения и волосяные трещины — фактура;
+ *   • зерно (без изменений).
+ */
 function makeRockPattern(): HTMLCanvasElement {
-  const size = PAINTER.pattern.patternSize
+  const P = PAINTER.pattern
+  const size = P.patternSize
   const cv = document.createElement('canvas')
   cv.width = size
   cv.height = size
   const ctx = cv.getContext('2d')!
   const rnd = new Rng(9150)
-  const noise = new Noise2D(9151)
-  const bands = PAINTER.pattern.bands
-  const bandColors = [PAL.rockVoid, PAL.rockDeep, PAL.rockDark, PAL.rockStrata, PAL.rockDark, PAL.rockDeep, PAL.rockMid]
-  // Шаг 15: ВЫСОТЫ полос нерегулярны (шум) — равномерные страты читались
-  // как «игровая сетка». Бесшовность по вертикали: сумма высот = size.
-  const heights: number[] = []
-  let hSum = 0
-  for (let b = 0; b < bands; b++) {
-    const h = size / bands * (0.55 + noise.value(b * 3.1, 7.7) * 0.9)
-    heights.push(h)
-    hSum += h
-  }
-  const hScale = size / hSum
-  let bandY = 0
-  for (let b = 0; b < bands; b++) {
-    const base = bandColors[b % bandColors.length]
-    const y0 = Math.round(bandY)
-    bandY += heights[b] * hScale
-    const y1 = Math.round(bandY)
-    ctx.fillStyle = base
-    ctx.fillRect(0, y0, size, y1 - y0)
-    for (let y = y0; y < y1; y++) {
-      // Дрожание яркости строки.
-      const j = (rnd.float() - 0.5) * PAINTER.pattern.bandJitter
-      if (j > 0.12) {
-        ctx.fillStyle = rgba(PAL.rockLight, 0.05)
-        ctx.fillRect(0, y, size, 1)
+  const TAU = Math.PI * 2
+
+  // 1) База: ПЛОСКАЯ (шаг 17.3: волна по Y даже с целыми периодами читалась
+  //    РЕГУЛЯРНЫМИ полосами — регулярность и есть «лента»; весь объём дают
+  //    пятна/линзы/галька ниже).
+  ctx.fillStyle = PAL.rockMid
+  ctx.fillRect(0, 0, size, size)
+
+  // 2) Пятна-объёмы: концентрические мягкие круги (свет/тень) — толща
+  //    неоднородна, стены перестают быть «слоёным пирогом». ГЛАВНАЯ
+  //    тональная работа тайла (база-то плоская).
+  for (let i = 0; i < P.mottleBlobs; i++) {
+    const bx = rnd.float() * size
+    const by = rnd.float() * size
+    const r = P.mottleRMin + rnd.float() * (P.mottleRMax - P.mottleRMin)
+    const light = rnd.float() > 0.45
+    drawWrapped(size, (ox, oy) => {
+      for (let k = 3; k >= 1; k--) {
+        ctx.fillStyle = rgba(light ? PAL.rockLight : PAL.rockDeep, (P.mottleAlpha * k) / 4)
+        ctx.beginPath()
+        ctx.arc(bx + ox, by + oy, (r * k) / 3, 0, TAU)
+        ctx.fill()
       }
-    }
+    })
   }
-  // Зерно породы.
-  for (let i = 0; i < PAINTER.pattern.grainSpecks; i++) {
+
+  // 3) ЛИНЗ-СТРАТЫ: короткие двояковыпуклые напластования. Каждая линза
+  //    заостряется к концам — «полоса» физически не может тянуться вечно.
+  const lensColors = [PAL.rockStrata, PAL.rockDeep, PAL.rockLight, PAL.rockDark]
+  for (let i = 0; i < P.lensCount; i++) {
+    const cx = rnd.float() * size
+    const cy = rnd.float() * size
+    const len = P.lensLenMin + rnd.float() * (P.lensLenMax - P.lensLenMin)
+    const thick = P.lensThickMin + rnd.float() * (P.lensThickMax - P.lensThickMin)
+    const col = lensColors[Math.floor(rnd.float() * lensColors.length)]
+    const phase = rnd.float() * TAU
+    const wob = rnd.float() * 2
+    drawWrapped(size, (ox, oy) => {
+      for (let xx = -len / 2; xx <= len / 2; xx++) {
+        const t = Math.abs(xx) / (len / 2)
+        const hh = Math.max(0.5, (thick / 2) * (1 - t))
+        const wobble = Math.sin((xx / len) * TAU * 2 + phase) * wob
+        ctx.fillStyle = rgba(col, P.lensAlpha)
+        ctx.fillRect(Math.round(cx + ox + xx), Math.round(cy + oy + wobble - hh), 1, Math.ceil(hh * 2))
+      }
+    })
+  }
+
+  // 4) Галька-включения: мелкие округлые зёрна светлее/темнее толщи.
+  for (let i = 0; i < P.clasts; i++) {
+    const x = rnd.float() * size
+    const y = rnd.float() * size
+    const w = 1 + Math.floor(rnd.float() * P.clastMax)
+    const h = 1 + Math.floor(rnd.float() * P.clastMax)
+    const light = rnd.float() > 0.5
+    drawWrapped(size, (ox, oy) => {
+      ctx.fillStyle = rgba(light ? PAL.rockLight : PAL.rockVoid, P.speckAlpha + 0.06)
+      ctx.fillRect(Math.round(x + ox), Math.round(y + oy), w, h)
+    })
+  }
+
+  // 5) Волосяные трещины: вертикальные зигзаги — вертикальный ритм против
+  //    горизонтальной геологии.
+  for (let i = 0; i < P.cracks; i++) {
+    let x = rnd.float() * size
+    let y = rnd.float() * size
+    const len = P.crackLenMin + Math.floor(rnd.float() * (P.crackLenMax - P.crackLenMin))
+    const dir = rnd.float() > 0.5 ? 1 : -1
+    const pts: Array<[number, number]> = []
+    for (let k = 0; k < len; k++) {
+      if (k % 9 === 0) x += dir * (rnd.float() > 0.5 ? 1 : -1)
+      y += dir
+      pts.push([x, y])
+    }
+    drawWrapped(size, (ox, oy) => {
+      ctx.fillStyle = rgba(PAL.ink, 0.5)
+      for (const [px, py] of pts) ctx.fillRect(Math.round(px + ox), Math.round(py + oy), 1, 1)
+    })
+  }
+
+  // 6) Зерно породы (шаг 15, без изменений).
+  for (let i = 0; i < P.grainSpecks; i++) {
     const x = Math.floor(rnd.float() * size)
     const y = Math.floor(rnd.float() * size)
     const w = 1 + Math.floor(rnd.float() * 3)
     ctx.fillStyle = rnd.float() > 0.5
-      ? rgba(PAL.rockLight, PAINTER.pattern.speckAlpha)
-      : rgba(PAL.ink, PAINTER.pattern.speckAlpha)
-    ctx.fillRect(x, y, w, 1)
-  }
-  // Страты: тонкие светлые линии на границах полос (напластования читаются).
-  // Шаг 15: граница полосы волнистая по X (bandWaviness) — не прямая линия.
-  for (let b = 1; b < bands; b++) {
-    const yb = Math.round(bandYof(b, heights, hScale))
-    for (let x = 0; x < size; x++) {
-      const off = Math.round((noise.value(x / size * 9, b * 11.3) - 0.5) * PAINTER.pattern.bandWaviness)
-      ctx.fillStyle = rgba(PAL.rockLight, 0.1)
-      ctx.fillRect(x, yb + off, 1, 1)
-      ctx.fillStyle = rgba(PAL.ink, 0.22)
-      ctx.fillRect(x, yb + off + 1, 1, 1)
-    }
+      ? rgba(PAL.rockLight, P.speckAlpha)
+      : rgba(PAL.ink, P.speckAlpha)
+    drawWrapped(size, (ox, oy) => ctx.fillRect(x + ox, y + oy, w, 1))
   }
   return cv
 }

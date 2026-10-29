@@ -472,9 +472,11 @@ makeGlow('glow-acid.png', PAL.acid)
   c.save('mote.png')
 }
 
-// ── Шаг 16: ФОН-СИСТЕМА ГЛУБИНЫ (5 слоёв параллакса) ──────────────────────
+// ── Шаг 16-17: ФОН-СИСТЕМА ГЛУБИНЫ (5 слоёв параллакса) ────────────────────
 // Жалоба игрока: «фоны просто полоски — убогое говно; на референсах глубина
-// пещеры, ощущение что она огромная, множество разных деталей».
+// пещеры, ощущение что она огромная, множество разных деталей». Шаг 17:
+// «полоски на фоне» — волнистые страты средней стены читались горизонталь-
+// ными ЛЕНТАМИ; стена перестроена под ВЕРТИКАЛЬНУЮ геометрию.
 // Архитектура (урок VLM-итераций): ОДИН непрозрачный задник + 4 силуэтных
 // слоя. Первая итерация сделала средние слои глухими — средняя стена
 // закрывала собой арки и череп левиафана, глубины не было вовсе. Теперь:
@@ -484,41 +486,124 @@ makeGlow('glow-acid.png', PAL.acid)
 //   bg-megavault   (прозрачный)   — соборный масштаб в дымке: арки, череп
 //                    и рёбра левиафана (Carrion), обломанные мосты-плиты
 //                    (Dead Cells), колоссальные сталактитовые поля, шпили;
-//   bg-midwall     (стена+окна)   — средняя стена: ОРГАНИЧЕСКИЕ волнистые
-//                    страты (не полосы!), трещины, тоннельные проёмы,
-//                    корни, грибные поляны, озеро — и БОЛЬШИЕ арочные
-//                    ОКНА (eraseEllipse), сквозь которые видны бездна и
-//                    мегаволт: глубина читается вглубь, а не вширь;
+//   bg-midwall     (силуэт+окна) — ШАГ 17: задняя стена зала БЕЗ лент —
+//                    потолочный свод с ГУСТЫМ полем сталактитов, пол со
+//                    сталагмитами и озером, 5 колонн (вертикальный ритм
+//                    собора), 10 выступов-обломков на своих высотах;
+//                    воздух между структурами ПРОЗРАЧЕН — бездна и
+//                    мегаволт видны везде, 8 арочных окон режут стену
+//                    насквозь: глубина читается ВГЛУБЬ, а не вширь;
 //   bg-formations  (прозрачный)   — ближние формации: двухтоновые
 //                    сталактиты, кристальные веера, костища, споры;
 //   silhouette-near(прозрачный)   — почти чёрные валуны-рамки у камеры.
 // Приёмы против «слишком гладко» (VLM): зерно породы (noise), трещины-
 // зигзаги, рваные кромки (позиционный хеш-джиттер), rim-light кромки.
 // Горизонтальная бесшовность: дублирование фигур на ±W, волновые частоты —
-// целое число периодов на ширину. Яркости — под вуаль тьмы 0.70.
+// целое число периодов на ширину. Яркости — под вуаль тьмы 0.62.
 
 const BGW = 1024
-const BGH = 1400
+// Шаг 17: 1400 → 1600 — вертикальный wrap тайла убит расчётом: максимум
+// tilePositionY (scrollY 6884 × фактор 0.14) + высота кадра 540 = 1504 < 1600,
+// иначе «потолок» текстуры вылезал снизу кадра на максимальной глубине.
+const BGH = 1600
 const TAU = Math.PI * 2
 /** Бесшовная частота: n периодов на ширину текстуры. */
 const fPeriod = (n) => (TAU * n) / BGW
-/** Позиционный хеш-джиттер: одна и та же величина во всех ±W копиях. */
-const hashJit = (a, b, m) => (((a * 73856093) ^ (b * 19349663)) >>> 0) % m
+/** Позиционный хеш-джиттер: одна и та же величина во всех ±W копиях.
+ *  Шаг 17.2: первый аргумент сворачивается в [0, BGW) — рваные края/пунктиры
+ *  фигур, ПЕРЕСЕКАЮЩИХ шов тайла, теперь пиксельно совпадают с копиями
+ *  (раньше совпадали только позиции фигур, но не их внутренний джиттер). */
+const hashJit = (a, b, m) => ((((((a % BGW) + BGW) % BGW) * 73856093) ^ (b * 19349663)) >>> 0) % m
 
-/** Органическая страта: волнистая полоса с пинч-аутами и дизерингом краёв. */
-function organicBand(c, y0, h, amp, color, alpha, phase) {
-  const f1 = fPeriod(2), f2 = fPeriod(5), f3 = fPeriod(1), fh = fPeriod(3)
-  for (let x = 0; x < BGW; x++) {
-    const edge = y0
-      + Math.sin(x * f1 + phase) * amp
-      + Math.sin(x * f2 + phase * 2.7) * amp * 0.35
-      + Math.sin(x * f3 + phase * 0.7) * amp * 0.85
-    const hh = h * (0.82 + 0.36 * (0.5 + 0.5 * Math.sin(x * fh + phase * 1.3)))
-    for (let y = Math.round(edge); y < Math.round(edge + hh); y++) {
-      const dEdge = Math.min(y - edge, edge + hh - y)
-      if (dEdge < 2.2 && (x * 7 + y * 13) % 5 < 2) continue
-      c.px(x, y, color, alpha)
+/** Шаг 17: СВЕТОВОЙ ЛУЧ — вертикальный мягкий столб (бог-рей из далёкого
+ *  провала в бездне): верх ярче, кромки горизонтальным затуханием. */
+function lightBeam(c, x, y, w, len, color, aTop) {
+  for (let yy = 0; yy < len; yy++) {
+    const t = yy / len
+    const a = aTop * (1 - t) * (1 - t)
+    const hw = Math.round((w / 2) * (1 - t * 0.4))
+    for (let xx = -hw; xx <= hw; xx++) {
+      const fx = 1 - Math.abs(xx) / (hw + 1)
+      c.px(x + xx, y + yy, color, Math.round(a * fx))
     }
+  }
+}
+
+/** Шаг 17: ЛИНЗА-СТРАТА — короткое линзовидное наслоение ВНУТРИ формы
+ *  (толще к центру, заплывает на нет у краёв). Геология читается, но
+ *  макро-полос на весь экран больше НЕТ: каждая линза ограничена шириной
+ *  своего выступа/колонны. */
+function lensStrata(c, x, y0, y1, maxHalf, color, alpha, seed) {
+  const n = 2 + hashJit(seed, 3, 3)
+  for (let i = 0; i < n; i++) {
+    const ly = y0 + ((i + 0.5) / n) * (y1 - y0)
+    const lh = 6 + hashJit(seed, i, 12)
+    const f = fPeriod(2 + hashJit(seed, i, 3))
+    for (let xx = -maxHalf; xx <= maxHalf; xx++) {
+      const t = 1 - Math.abs(xx) / (maxHalf + 1)
+      const hh = lh * t
+      const off = Math.sin(xx * f + i * 2.1) * 4
+      for (let yy = -hh; yy <= hh; yy++) {
+        c.px(x + xx, Math.round(ly + yy + off), color, Math.round(alpha * (0.45 + 0.55 * t)))
+      }
+    }
+  }
+}
+
+/** Шаг 17: КОЛОННА — вертикальный простенок свода (главный ритм стены):
+ *  рваные края (позиционный хеш), органическое перехватывание, вертикальные
+ *  желоба-натёки, линз-страты внутри, кромка дальнего света сбоку. */
+function rockColumn(c, x, topY, botY, w, core, face, rim) {
+  const half0 = w / 2
+  for (let y = Math.round(topY); y <= botY; y++) {
+    const t = (y - topY) / (botY - topY || 1)
+    const pinch = 1 - 0.16 * Math.sin(t * Math.PI)
+    const half = Math.max(4, Math.round(half0 * pinch + hashJit(x, y, 7) - 3))
+    c.rect(x - half, y, x + half, y, core, 250)
+    // освещённая грань слева (дальний свет бездны)
+    c.px(x - half, y, face, 150)
+    c.px(x - half - 1, y, rim, 60)
+  }
+  // натёки-желоба: вертикальные тёмные нити по телу колонны
+  for (let f = 0; f < 3; f++) {
+    const fx = x - half0 * 0.4 + (f / 2) * half0 * 0.8
+    for (let y = Math.round(topY + 20); y < botY - 12; y += 1) {
+      if ((y + f * 5) % 17 < 3) continue
+      const xx = Math.round(fx + Math.sin(y * 0.02 + f) * 3)
+      c.px(xx, y, [0x0c, 0x0e, 0x18], 120)
+    }
+  }
+  lensStrata(c, x, topY + (botY - topY) * 0.18, topY + (botY - topY) * 0.82, half0 * 0.8, [0x0e, 0x11, 0x1e], 130, x)
+}
+
+/** Шаг 17: ВЫСТУП-ОБЛОМОК — неровная масса породы: кластер наложенных
+ *  скруглённых блоков с позиционным джиттером (НЕ полоса: ширина 140-320,
+ *  живёт сама по себе на своей высоте). Сверху — кромка света, внутри —
+ *  линз-страты, снизу — свисы. */
+function rockOutcrop(c, cx, cy, w, h, core, face, rim, seed) {
+  const lumps = 4 + hashJit(seed, 1, 4)
+  for (let l = 0; l < lumps; l++) {
+    const lw = Math.round((w * (0.42 + hashJit(seed, l * 3 + 2, 30) / 100)) / 2)
+    const lh = Math.round(h * (0.36 + hashJit(seed, l * 3 + 3, 34) / 100))
+    const ox = cx + (hashJit(seed, l * 3 + 4, Math.max(9, w)) - w / 2) * 0.7
+    const oy = cy + (hashJit(seed, l * 3 + 5, Math.max(9, h)) - h / 2) * 0.6
+    c.roundRect(ox - lw, oy - lh, ox + lw, oy + lh, Math.max(6, Math.round(lw * 0.7)), core, 246)
+  }
+  // кромка света поверх верхней грани — ПУНКТИРНАЯ (шаг 17.2: сплошная
+  // линия читалась горизонтальной «полкой»-лентой): точки с хеш-пропусками
+  // и волной, плюс бахрома мелких зубцов под кромкой
+  for (let x = Math.round(cx - w / 2); x <= cx + w / 2; x += 2) {
+    if (hashJit(x, seed, 4) === 0) continue
+    const ry = Math.round(cy - h * 0.42 + Math.sin(x * fPeriod(3) + seed) * 5)
+    c.px(x, ry, face, 120)
+    c.px(x, ry - 1, rim, 55)
+    if (hashJit(x, seed + 3, 9) < 2) coneDown(c, x, ry + 2, 4, 10 + hashJit(x, seed + 5, 14), core, 200)
+  }
+  lensStrata(c, cx, cy - h * 0.3, cy + h * 0.3, w * 0.36, [0x0e, 0x11, 0x1e], 120, seed + 7)
+  // свисы снизу — порода продолжает капать
+  for (let d = 0; d < 3; d++) {
+    const dx = cx - w * 0.25 + (d / 2) * w * 0.5
+    coneDown(c, Math.round(dx), Math.round(cy + h * 0.3), 10 + hashJit(seed, d, 14), 26 + hashJit(seed, d + 9, 40), core, 220)
   }
 }
 
@@ -639,14 +724,16 @@ function tunnelMouth(c, cx, cy, rx, ry, dark, alpha, rim, rimA, glow) {
   c.radial(cx, Math.round(cy + ry * 0.15), Math.max(8, Math.round(rx * 0.55)), glow, [[0, 0.26], [0.6, 0.10], [1, 0]])
 }
 
-/** Дальнее озеро: полоса воды с волнистой кромкой + вертикальные блики. */
-function farLake(c, y, h, reflections) {
-  for (let x = 0; x < BGW; x++) {
+/** Дальнее озеро: полоса воды с волнистой кромкой + вертикальные блики.
+ *  Шаг 17.2: x0..x1 — вода живёт НА массиве пола, не на всю ширину. */
+function farLake(c, y, h, x0, x1, reflections) {
+  for (let x = x0; x <= x1; x++) {
     const edge = y + Math.sin(x * fPeriod(3) + 2.1) * 4 + Math.sin(x * fPeriod(7)) * 2
     for (let yy = Math.round(edge); yy < Math.round(edge + h); yy++) c.px(x, yy, [0x10, 0x13, 0x20], 235)
   }
   for (const r of reflections) {
     for (const dx of [-BGW, 0, BGW]) {
+      if (r.x + dx < x0 || r.x + dx > x1) continue
       c.rect(r.x + dx, y + 3, r.x + dx + r.w, y + 3 + r.len, [0x2e, 0x38, 0x50], r.a)
     }
   }
@@ -687,6 +774,10 @@ function gradientFill(c, top, bottom) {
     for (const dx of [-BGW, 0, BGW]) {
       c.radial(gx + dx, gy, gr, [0x4c, 0x5c, 0x88], [[0, 0.24], [0.45, 0.11], [1, 0]])
       c.radial(gx + dx, gy, Math.round(gr * 0.45), [0x5a, 0x6e, 0xa0], [[0, 0.18], [1, 0]])
+      // Шаг 17: бог-рей — из далёкого проёма вниз падает мягкий столб света
+      // (VLM: не хватало атмосферных эффектов; референс — свет из провала)
+      lightBeam(c, gx + dx - Math.round(gr * 0.25), gy + Math.round(gr * 0.2), Math.round(gr * 0.34), Math.round(gr * 1.5), [0x5e, 0x72, 0xa8], 0.10)
+      lightBeam(c, gx + dx + Math.round(gr * 0.3), gy + Math.round(gr * 0.1), Math.round(gr * 0.2), Math.round(gr * 1.1), [0x5e, 0x72, 0xa8], 0.07)
     }
   }
   // Тёплые карманы в глубине (VLM: палитра монохромна) — далёкие лавовые
@@ -718,8 +809,11 @@ function gradientFill(c, top, bottom) {
 {
   const c = new Canvas(BGW, BGH)
   const rnd = mulberry32(1602)
-  const INK = [0x12, 0x15, 0x24]
-  const INK_SOFT = [0x16, 0x1a, 0x2c]
+  // Шаг 17 (воздушная перспектива): мегаволт — ДАЛЬНИЙ план, уводится в
+  // дымку — светлее и полупрозрачнее средней стены (раньше был глухим INK
+  // и читался второй занавеской перед бездной, VLM: «плоские занавески»).
+  const INK = [0x20, 0x25, 0x3c]
+  const INK_SOFT = [0x26, 0x2c, 0x46]
   const RIM = [0x4c, 0x56, 0x7c]
   // Соборные арки — главные ландмарки «эта пещера огромная».
   for (let a = 0; a < 3; a++) {
@@ -729,7 +823,7 @@ function gradientFill(c, top, bottom) {
     const height = 330 + Math.floor(rnd() * 260)
     const thick = 18 + Math.floor(rnd() * 9)
     for (const dx of [-BGW, 0, BGW]) {
-      cathedralArch(c, x + dx, ground, span, height, thick, INK, 235, RIM, 110)
+      cathedralArch(c, x + dx, ground, span, height, thick, INK, 168, RIM, 95)
     }
   }
   // Обломанные мосты-плиты между арками (set piece Dead Cells).
@@ -738,7 +832,7 @@ function gradientFill(c, top, bottom) {
     const y = 380 + Math.floor(rnd() * 620)
     const len = 230 + Math.floor(rnd() * 140)
     for (const dx of [-BGW, 0, BGW]) {
-      brokenBridge(c, x + dx, y, len, 13, 44, INK, 210, RIM, 75)
+      brokenBridge(c, x + dx, y, len, 13, 44, INK, 150, RIM, 66)
     }
   }
   // Скелет левиафана: череп + рёбра по хребту (якорь масштаба, Carrion).
@@ -747,7 +841,7 @@ function gradientFill(c, top, bottom) {
     const skullY = 480 + Math.floor(rnd() * 400)
     const s = 90 + Math.floor(rnd() * 50)
     for (const dx of [-BGW, 0, BGW]) {
-      leviathanSkull(c, skullX + dx, skullY, s, [0x66, 0x63, 0x7e], [0x0c, 0x0e, 0x18], 105)
+      leviathanSkull(c, skullX + dx, skullY, s, [0x6e, 0x6b, 0x88], [0x1a, 0x1e, 0x30], 92)
     }
     const spineX = skullX + s * 1.6
     const spineY = skullY + s * 0.3
@@ -756,7 +850,7 @@ function gradientFill(c, top, bottom) {
       const cx = spineX + r * 46
       const cy = spineY + Math.floor(rnd() * 16)
       for (const dx of [-BGW, 0, BGW]) {
-        boneArc(c, cx + dx, cy, rx, rx * 0.8, 5, [0x66, 0x63, 0x7e], 120)
+        boneArc(c, cx + dx, cy, rx, rx * 0.8, 5, [0x6e, 0x6b, 0x88], 100)
       }
     }
   }
@@ -766,8 +860,8 @@ function gradientFill(c, top, bottom) {
     const w = 70 + Math.floor(rnd() * 110)
     const len = 300 + Math.floor(rnd() * 320)
     for (const dx of [-BGW, 0, BGW]) {
-      coneDown(c, x + dx + 10, 0, w, len, INK_SOFT, 175)
-      coneDown(c, x + dx, 0, w, len, INK, 240)
+      coneDown(c, x + dx + 10, 0, w, len, INK_SOFT, 125)
+      coneDown(c, x + dx, 0, w, len, INK, 172)
     }
   }
   // Шпили-башни со дна.
@@ -776,7 +870,7 @@ function gradientFill(c, top, bottom) {
     const w = 36 + Math.floor(rnd() * 24)
     const h = 300 + Math.floor(rnd() * 220)
     for (const dx of [-BGW, 0, BGW]) {
-      moundUp(c, x + dx, BGH - 1, w, h, INK, 205)
+      moundUp(c, x + dx, BGH - 1, w, h, INK, 150)
     }
   }
   // Массивы-холмы со дна (с кромкой света слева — VLM: rim-lighting).
@@ -785,7 +879,7 @@ function gradientFill(c, top, bottom) {
     const w = 160 + Math.floor(rnd() * 170)
     const h = 110 + Math.floor(rnd() * 150)
     for (const dx of [-BGW, 0, BGW]) {
-      moundUp(c, x + dx, BGH - 1, w, h, INK, 195)
+      moundUp(c, x + dx, BGH - 1, w, h, INK, 142)
       for (let i = 0; i <= h; i += 4) {
         const t = 1 - i / h
         const hw = Math.round((w / 2) * Math.sqrt(t))
@@ -809,63 +903,268 @@ function gradientFill(c, top, bottom) {
   c.save('bg-megavault.png')
 }
 
-// ── Слой 2: bg-midwall — средняя стена с ОКНАМИ вглубь ─────────────────────
+// ── Слой 2: bg-midwall — задняя стена зала: СВОД + КОЛОННЫ + ВЫСТУПЫ ─────────
+// Шаг 17 (жалоба «полоски на фоне»): волнистые страты на всю ширину читались
+// ГОРИЗОНТАЛЬНЫМИ ЛЕНТАМИ. Стена полностью перестроена под ВЕРТИКАЛЬНУЮ
+// геометрию — воздух между структурами прозрачен (принцип шага 16: один
+// непрозрачный задник = bg-void, остальные слои — силуэты с прорезями):
+//   • ПОТОЛОЧНЫЙ СВОД — масса породы от y=0 до волнистой кромки + ГУСТОЕ
+//     поле сталактитов трёх масштабов (референс: плотные сосульки) + корни;
+//   • ПОЛ — масса с волнистой кромкой + сталагмитовые горы + валунная
+//     осыпь + дальнее озеро во впадине;
+//   • КОЛОННЫ (5) — вертикальный ритм собора: три в полный рост, одна
+//     свисает со свода, одна растёт с пола; рваные края, натёки-желоба;
+//   • ВЫСТУПЫ-ОБЛОМКИ (10) — неровные массы на своих высотах: стена
+//     «дышит» объёмом, лент нет вовсе;
+//   • Детали: тоннельные проёмы, грибные поляны, костища, нити светлячков;
+//   • ОКНА (8) — арочные прорези eraseEllipse сквозь ВСЁ: бездна и
+//     мегаволт (арки/череп/мосты) видны ВГЛУБЬ, глубина не только вширь.
 {
   const c = new Canvas(BGW, BGH)
-  const rnd = mulberry32(1603)
-  gradientFill(c, [0x28, 0x2d, 0x48], [0x1a, 0x1d, 0x30])
-  // ОРГАНИЧЕСКИЕ страты: волнистые, с пинч-аутами — геология, не полосы.
-  for (let b = 0; b < 9; b++) {
-    const y0 = 60 + b * 148 + Math.floor(rnd() * 56)
-    const h = 62 + Math.floor(rnd() * 70)
-    const amp = 9 + rnd() * 12
-    const phase = rnd() * TAU
-    const col = b % 2 === 0 ? [0x44, 0x4a, 0x6e] : [0x13, 0x16, 0x26]
-    organicBand(c, y0, h, amp, col, 255, phase)
+  const rnd = mulberry32(1703)
+  const CORE = [0x18, 0x1c, 0x30]   // тело породы (плотнее дальнего INK)
+  const FACE = [0x2b, 0x31, 0x52]   // освещённая грань
+  const DARKCORE = [0x11, 0x14, 0x24]
+  const RIM = [0x4a, 0x54, 0x80]    // кромка дальнего света
+
+  // ── 1. ПОТОЛОЧНЫЕ СВОДЫ-СЕГМЕНТЫ (шаг 17.2): сплошной свод на всю ширину
+  // сам превращался в «полосу», когда камера выравнивалась с ним. Теперь
+  // свод = 3 массива-засечки с ПРОЁМАМИ между ними: в проёмах видна бездна
+  // сверху, силуэт потолка — глубоко зубчатый (густая бахрома + корни).
+  // Сегмент A [0..360] стыкуется с сегментом C [940..1024] через шов тайла.
+  const CEIL_SEGS = [
+    // t A == t C: кромка на шве тайла непрерывна (bump=0 на обоих концах)
+    { x0: 0, x1: 360, t: 150 },
+    { x0: 480, x1: 860, t: 196 },
+    { x0: 940, x1: BGW, t: 150 },
+  ]
+  const ceilEdge = (x) => {
+    for (const s of CEIL_SEGS) {
+      if (x >= s.x0 && x <= s.x1) {
+        // линза-свод: толще к центру сегмента (нервюрная арка)
+        const local = (x - s.x0) / (s.x1 - s.x0)
+        const bump = Math.sin(local * Math.PI)
+        return 78 + s.t * (0.42 + 0.58 * bump)
+          + Math.sin(x * fPeriod(5) + 0.4) * 12
+          + Math.sin(x * fPeriod(9) + 2.2) * 6
+      }
+    }
+    return -1 // проём: потолка нет
   }
-  // Зерно и трещины: фактура старой породы.
-  c.noise(1613, [[0x30, 0x35, 0x4e], [0x14, 0x17, 0x26]], 0.22, 0.08, 0.18)
-  for (let k = 0; k < 18; k++) {
-    const x = Math.floor(rnd() * BGW)
-    const y = 80 + Math.floor(rnd() * 900)
-    const len = 90 + Math.floor(rnd() * 240)
-    for (const dx of [-BGW, 0, BGW]) {
-      crack(c, x + dx, y, len, [0x0d, 0x0f, 0x18], 150)
+  for (let x = 0; x < BGW; x++) {
+    const e = Math.round(ceilEdge(x))
+    if (e < 0) continue
+    c.rect(x, 0, x, e, CORE, 252)
+    c.rect(x, e - 14, x, e, FACE, 170)
+  }
+  // ГУСТОЕ поле сталактитов ТРЁХ масштабов: гиганты-своды под сегментами,
+  // в проёмах — плотная висячая бахрома от кромки шва (свет сочится сверху).
+  for (const dx of [-BGW, 0, BGW]) {
+    let xg = 60
+    while (xg < BGW - 30) {
+      const e = ceilEdge(xg)
+      if (e > 0) {
+        const len = 230 + hashJit(xg, 11, 200)
+        coneDown(c, xg + dx, Math.round(e) - 14, 52 + hashJit(xg, 12, 44), len, CORE, 250)
+        coneDown(c, xg + dx + 12, Math.round(e) - 8, 34 + hashJit(xg, 13, 26), Math.round(len * 0.55), FACE, 140)
+      } else {
+        // проём: зубцы висят с самого верха шва — глубоко зубчатый профиль
+        coneDown(c, xg + dx, 4, 46 + hashJit(xg, 12, 40), 130 + hashJit(xg, 11, 160), CORE, 245)
+      }
+      xg += 140 + hashJit(xg, 14, 120)
+    }
+    for (let xm = 18; xm < BGW; xm += 34 + hashJit(xm, 21, 26)) {
+      const e = ceilEdge(xm)
+      coneDown(c, xm + dx, Math.max(2, Math.round(e) - 4), 14 + hashJit(xm, 22, 18), 90 + hashJit(xm, 23, 130), CORE, 244)
+    }
+    for (let xf = 6; xf < BGW; xf += 11 + hashJit(xf, 31, 8)) {
+      const e = ceilEdge(xf)
+      coneDown(c, xf + dx, Math.max(1, Math.round(e) - 2), 6 + hashJit(xf, 32, 7), 26 + hashJit(xf, 33, 64), DARKCORE, 235)
     }
   }
-  // Тоннельные проёмы: тёмные ниши со огоньком в глубине.
-  for (let k = 0; k < 5; k++) {
-    const x = 90 + Math.floor(rnd() * (BGW - 180))
-    const y = 220 + Math.floor(rnd() * 950)
-    const rx = 50 + Math.floor(rnd() * 40)
-    const ry = 32 + Math.floor(rnd() * 26)
-    for (const dx of [-BGW, 0, BGW]) {
-      tunnelMouth(c, x + dx, y, rx, ry, [0x0e, 0x10, 0x1a], 240, [0x33, 0x3d, 0x5c], 80, PAL.cyan)
-    }
-  }
-  // Корни-занавеси: пучки свисающих нитей.
-  for (let k = 0; k < 12; k++) {
-    const x = Math.floor(rnd() * BGW)
-    const y = 90 + Math.floor(rnd() * 820)
+  // Корни-занавеси (в проёмах — гуще: свисают из мира над бездной).
+  for (let k = 0; k < 10; k++) {
+    const x = 40 + Math.floor(rnd() * (BGW - 80))
+    const e = ceilEdge(x)
+    const y = e > 0 ? Math.round(e) - 6 : 8
     const n = 3 + Math.floor(rnd() * 4)
     const roots = []
     for (let r = 0; r < n; r++) {
       roots.push({
         dx: (r - n / 2) * 5 + Math.floor(rnd() * 3),
-        len: 70 + Math.floor(rnd() * 140),
+        len: 70 + Math.floor(rnd() * (e > 0 ? 150 : 220)),
         sway: 5 + rnd() * 7,
       })
     }
     for (const dx of [-BGW, 0, BGW]) {
-      for (const r of roots) {
-        hangRoot(c, x + dx + r.dx, y, r.len, r.sway, [0x13, 0x15, 0x22], 190, 1)
+      for (const r of roots) hangRoot(c, x + dx + r.dx, y, r.len, r.sway, [0x13, 0x15, 0x22], 185, 1)
+    }
+  }
+
+  // ── 2. ПОЛ-МАССИВЫ с ПРОВАЛАМИ (шаг 17.2): сплошной пол тоже был лентой.
+  // Теперь 3 массива с разрывами-пропастями: в разрыве видна бездна ВНИЗ —
+  // глубина читается и под ногами. Массив A [0..300] стыкуется с C через шов.
+  const FLOOR_SEGS = [
+    // t A == t C: непрерывность кромки пола на шве тайла
+    { x0: 0, x1: 300, t: 148 },
+    { x0: 420, x1: 760, t: 176 },
+    { x0: 870, x1: BGW, t: 148 },
+  ]
+  const floorEdge = (x) => {
+    for (const s of FLOOR_SEGS) {
+      if (x >= s.x0 && x <= s.x1) {
+        const local = (x - s.x0) / (s.x1 - s.x0)
+        const bump = Math.sin(local * Math.PI)
+        return BGH - (66 + s.t * (0.4 + 0.6 * bump))
+          + Math.sin(x * fPeriod(7) + 2.2) * 10
+          + Math.sin(x * fPeriod(11) + 0.9) * 5
+      }
+    }
+    return -1 // пропасть: пола нет
+  }
+  for (let x = 0; x < BGW; x++) {
+    const e = Math.round(floorEdge(x))
+    if (e < 0) continue
+    c.rect(x, e, x, BGH - 1, CORE, 252)
+    c.rect(x, e, x, e + 12, FACE, 160)
+  }
+  // Осыпь по кромкам пропастей: гребень обрыва сыплется валунами.
+  for (const seg of FLOOR_SEGS) {
+    for (const lipX of [seg.x0 + 14, seg.x1 - 14]) {
+      if (lipX <= 4 || lipX >= BGW - 4) continue
+      for (const dx of [-BGW, 0, BGW]) {
+        c.roundRect(lipX + dx - 26, Math.round(floorEdge(lipX)) - 14, lipX + dx + 26, Math.round(floorEdge(lipX)) + 8, 4, [0x22, 0x27, 0x3e], 240)
+        c.roundRect(lipX + dx - 12, Math.round(floorEdge(lipX)) - 22, lipX + dx + 14, Math.round(floorEdge(lipX)) - 2, 3, [0x26, 0x2a, 0x40], 234)
       }
     }
   }
-  // Грибные поляны: россыпи биолюма (цвет — рандом cyan/purple).
-  for (let k = 0; k < 7; k++) {
-    const x = Math.floor(rnd() * BGW)
-    const y = 260 + Math.floor(rnd() * 1000)
+  // Дальнее озеро на массиве B: тёмная вода с бликами (в пределах массива —
+  // не на всю ширину: водная полоса у пола натуральна, ленты породы — нет).
+  {
+    const reflections = []
+    for (let r = 0; r < 18; r++) {
+      reflections.push({
+        x: 430 + Math.floor(rnd() * 320),
+        w: 1 + Math.floor(rnd() * 2),
+        len: 4 + Math.floor(rnd() * 26),
+        a: Math.round(24 + rnd() * 36),
+      })
+    }
+    farLake(c, BGH - 208, 34, 430, 760, reflections)
+  }
+  // Сталагмитовые горы и осыпь валунов — только на массивах.
+  for (let k = 0; k < 9; k++) {
+    const seg = FLOOR_SEGS[k % FLOOR_SEGS.length]
+    const x = seg.x0 + 30 + Math.floor(rnd() * Math.max(10, seg.x1 - seg.x0 - 60))
+    const w = 80 + Math.floor(rnd() * 150)
+    const h = 70 + Math.floor(rnd() * 150)
+    for (const dx of [-BGW, 0, BGW]) {
+      moundUp(c, x + dx, BGH - 1, w, h, k % 2 ? CORE : DARKCORE, 248)
+      moundUp(c, x + dx + Math.round(w * 0.25), BGH - 1, Math.round(w * 0.5), Math.round(h * 0.6), DARKCORE, 244)
+    }
+  }
+  for (let k = 0; k < 6; k++) {
+    const seg = FLOOR_SEGS[k % FLOOR_SEGS.length]
+    const x = seg.x0 + 24 + Math.floor(rnd() * Math.max(10, seg.x1 - seg.x0 - 48))
+    const y = BGH - 230 + Math.floor(rnd() * 120)
+    const n = 3 + Math.floor(rnd() * 3)
+    const rocks = []
+    for (let r = 0; r < n; r++) {
+      rocks.push({
+        dx: (r - n / 2) * 16 + Math.floor(rnd() * 8),
+        dy: Math.floor(rnd() * 8),
+        w: 10 + Math.floor(rnd() * 18),
+        h: 7 + Math.floor(rnd() * 10),
+      })
+    }
+    for (const dx of [-BGW, 0, BGW]) {
+      for (const r of rocks) {
+        c.roundRect(x + dx + r.dx - r.w, y + r.dy - r.h, x + dx + r.dx + r.w, y + r.dy, 3, [0x22, 0x27, 0x3e], 235)
+      }
+    }
+  }
+
+  // ── 3. КОЛОННЫ — вертикальный ритм (главная антитеза «полоскам»).
+  // Стоят ТОЛЬКО на сводных сегментах/массивах (не в проёмах — там висят
+  // зубцы и корни). Радиус колонны ≤ половины сегмента.
+  const colSpecs = [
+    { x: 150, w: 108, kind: 'full' },  // сегмент A
+    { x: 262, w: 78, kind: 'hang' },   // свисает со свода A (обломана)
+    { x: 520, w: 128, kind: 'full' },  // сегмент B
+    { x: 690, w: 88, kind: 'risen' },  // растёт с массива B (обломана)
+    { x: 975, w: 118, kind: 'full' },  // сегмент C
+  ]
+  for (const col of colSpecs) {
+    const top = Math.round(ceilEdge(col.x)) - 6
+    const bot = Math.round(floorEdge(col.x)) + 6
+    let y0 = top, y1 = bot
+    if (col.kind === 'hang') y1 = top + Math.round((bot - top) * 0.52)
+    if (col.kind === 'risen') y0 = bot - Math.round((bot - top) * 0.46)
+    for (const dx of [-BGW, 0, BGW]) {
+      rockColumn(c, col.x + dx, y0, y1, col.w, CORE, FACE, RIM)
+      // шапка/пятка обломанной колонны — рваная площадка
+      if (col.kind === 'hang') {
+        c.roundRect(col.x + dx - col.w * 0.55, y1 - 8, col.x + dx + col.w * 0.55, y1 + 10, 7, DARKCORE, 250)
+        coneDown(c, col.x + dx - 18, y1 + 8, 16, 44, CORE, 240)
+        coneDown(c, col.x + dx + 20, y1 + 8, 13, 30, CORE, 240)
+      }
+      if (col.kind === 'risen') {
+        c.roundRect(col.x + dx - col.w * 0.6, y0 - 12, col.x + dx + col.w * 0.6, y0 + 8, 7, DARKCORE, 250)
+        coneDown(c, col.x + dx + 2, y0 - 12, 20, 56, CORE, 236)
+      }
+    }
+  }
+
+  // ── 4. Выступы-обломки: неровные массы на своих высотах (BGH 1600:
+  // диапазон расширен вниз — глубокие кадры тоже обязаны быть населены) ──
+  const outcrops = [
+    { cx: 176, cy: 430, w: 250, h: 170 },
+    { cx: 402, cy: 610, w: 190, h: 130 },
+    { cx: 648, cy: 470, w: 290, h: 190 },
+    { cx: 880, cy: 700, w: 220, h: 150 },
+    { cx: 250, cy: 860, w: 300, h: 200 },
+    { cx: 560, cy: 950, w: 240, h: 160 },
+    { cx: 120, cy: 1080, w: 210, h: 140 },
+    { cx: 800, cy: 1060, w: 260, h: 170 },
+    { cx: 420, cy: 1230, w: 230, h: 150 },
+    { cx: 960, cy: 330, w: 180, h: 120 },
+    { cx: 660, cy: 1330, w: 240, h: 160 },
+    { cx: 180, cy: 1400, w: 200, h: 140 },
+  ]
+  for (let i = 0; i < outcrops.length; i++) {
+    const o = outcrops[i]
+    for (const dx of [-BGW, 0, BGW]) {
+      rockOutcrop(c, o.cx + dx, o.cy, o.w, o.h, i % 3 === 0 ? DARKCORE : CORE, FACE, RIM, o.cx + i * 17)
+    }
+  }
+  // Трещины на структурах (VLM шага 17: «пластиковые» поверхности без
+  // фактуры): вертикальные зигзаги с кромок колонн и тел выступов.
+  for (let k = 0; k < 16; k++) {
+    const o = outcrops[k % outcrops.length]
+    const x = o.cx + (hashJit(o.cx, k, Math.max(10, o.w)) - o.w / 2) * 0.7
+    const y = o.cy - Math.round(o.h * 0.3)
+    const len = 60 + hashJit(o.cx, k + 40, 160)
+    for (const dx of [-BGW, 0, BGW]) {
+      crack(c, Math.round(x + dx), y, len, [0x0b, 0x0d, 0x16], 140)
+    }
+  }
+
+  // ── 5. Тоннельные проёмы: ниши с огоньком в глубине ──
+  for (let k = 0; k < 6; k++) {
+    const x = 90 + Math.floor(rnd() * (BGW - 180))
+    const y = 330 + Math.floor(rnd() * 1050)
+    const rx = 48 + Math.floor(rnd() * 38)
+    const ry = 30 + Math.floor(rnd() * 24)
+    for (const dx of [-BGW, 0, BGW]) {
+      tunnelMouth(c, x + dx, y, rx, ry, [0x0e, 0x10, 0x1a], 240, [0x33, 0x3d, 0x5c], 80, PAL.cyan)
+    }
+  }
+
+  // ── 6. Грибные поляны на выступах + костища + нити светлячков ──
+  for (let k = 0; k < 8; k++) {
+    const o = outcrops[k % outcrops.length]
+    const x = o.cx - o.w * 0.2 + Math.floor(rnd() * o.w * 0.4)
+    const y = o.cy - Math.round(o.h * 0.42)
     const col = rnd() > 0.45 ? PAL.cyan : PAL.spore
     const dots = []
     const n = 4 + Math.floor(rnd() * 5)
@@ -877,58 +1176,56 @@ function gradientFill(c, top, bottom) {
       for (const d of dots) c.px(x + dx + d.dx, y - d.dy, col, d.a)
     }
   }
-  // Дальнее озеро: тёмная вода с бликами-отражениями.
-  {
-    const reflections = []
-    for (let r = 0; r < 26; r++) {
-      reflections.push({
-        x: Math.floor(rnd() * BGW),
-        w: 1 + Math.floor(rnd() * 2),
-        len: 4 + Math.floor(rnd() * 26),
-        a: Math.round(24 + rnd() * 36),
-      })
+  for (let k = 0; k < 4; k++) {
+    const x = Math.floor(rnd() * BGW)
+    const y = 400 + Math.floor(rnd() * 800)
+    for (const dx of [-BGW, 0, BGW]) {
+      c.roundRect(x + dx - 7, y - 10, x + dx + 7, y + 1, 3, [0x55, 0x53, 0x68], 74)
+      boneArc(c, x + dx + 13, y, 7, 10, 1, [0x55, 0x53, 0x68], 60)
+      boneArc(c, x + dx + 24, y + 2, 6, 9, 1, [0x55, 0x53, 0x68], 52)
     }
-    farLake(c, 1050, 34, reflections)
   }
-  // Россыпи валунов у подножия.
   for (let k = 0; k < 5; k++) {
     const x = Math.floor(rnd() * BGW)
-    const y = 300 + Math.floor(rnd() * 1000)
-    const rocks = []
+    const y = 130 + Math.floor(rnd() * 520)
+    const len = 80 + Math.floor(rnd() * 120)
+    const dots = []
     const n = 3 + Math.floor(rnd() * 3)
-    for (let r = 0; r < n; r++) {
-      rocks.push({
-        dx: (r - n / 2) * 16 + Math.floor(rnd() * 8),
-        dy: Math.floor(rnd() * 8),
-        w: 10 + Math.floor(rnd() * 16),
-        h: 7 + Math.floor(rnd() * 9),
-      })
-    }
+    for (let d = 0; d < n; d++) dots.push({ t: 0.25 + (d / n) * 0.7 })
     for (const dx of [-BGW, 0, BGW]) {
-      for (const r of rocks) {
-        c.roundRect(x + dx + r.dx - r.w, y + r.dy - r.h, x + dx + r.dx + r.w, y + r.dy, 3, [0x26, 0x2a, 0x40], 230)
+      hangRoot(c, x + dx, y, len, 6, [0x2a, 0x3e, 0x38], 110, 1)
+      for (const d of dots) {
+        const i = Math.round(len * d.t)
+        const xx = x + dx + Math.sin(i * 0.055 + (x + dx) * 0.13) * 6 + Math.sin(i * 0.021 + (x + dx) * 0.31) * 3.6
+        c.px(xx, y + i, PAL.cyan, 62)
       }
     }
   }
-  // ГЛАВНОЕ (шаг 16): арочные ОКНА — стена прорезана насквозь, сквозь
-  // проёмы видны бездна и мегаволт (арки/череп/рёбра). Прорези идут
-  // ПОСЛЕ всех деталей: вычищаются и страты, и трещины, и корни.
-  // Параметры окон считаются ОДИН раз: прорезь и обводка обязаны совпадать.
-  const windows = []
-  for (let k = 0; k < 6; k++) {
-    windows.push({
-      x: 150 + Math.floor(rnd() * (BGW - 300)),
-      y: 360 + Math.floor(rnd() * 700),
-      rx: 95 + Math.floor(rnd() * 70),
-      ry: 130 + Math.floor(rnd() * 90),
-    })
-  }
+
+  // ── 7. Зерно породы (фактура; воздух между структурами чист) ──
+  c.noise(1713, [[0x2c, 0x31, 0x4c], [0x12, 0x15, 0x26]], 0.16, 0.06, 0.15)
+
+  // ── 8. ОКНА: арочные прорези СКВОЗЬ всё — глубина читается ВГЛУБЬ ──
+  // 3 широкие арки + 5 узких вертикальных щелей; прорези идут ПОСЛЕ всех
+  // деталей. Параметры считаются ОДИН раз: прорезь и обводка совпадают.
+  const windows = [
+    { x: 258, y: 700, rx: 118, ry: 152 },
+    { x: 610, y: 880, rx: 132, ry: 168 },
+    { x: 892, y: 560, rx: 104, ry: 138 },
+    { x: 118, y: 470, rx: 50, ry: 205 },
+    { x: 430, y: 1090, rx: 56, ry: 215 },
+    { x: 742, y: 940, rx: 47, ry: 185 },
+    { x: 966, y: 1120, rx: 52, ry: 195 },
+    { x: 500, y: 400, rx: 60, ry: 225 },
+    { x: 300, y: 1330, rx: 92, ry: 126 },
+    { x: 770, y: 1400, rx: 54, ry: 190 },
+  ]
   for (const win of windows) {
     for (const dx of [-BGW, 0, BGW]) {
       c.eraseEllipse(win.x + dx, win.y, win.rx, win.ry, 1.0)
     }
   }
-  // Обводка кромок окон: срез камня ловит дальний свет (читается проём).
+  // Обводка кромок окон: срез камня ловит дальний свет.
   for (const win of windows) {
     for (const dx of [-BGW, 0, BGW]) {
       for (let a = 0; a <= 72; a += 1) {
@@ -940,33 +1237,37 @@ function gradientFill(c, top, bottom) {
   c.save('bg-midwall.png')
 }
 
+
 // ── Слой 3: bg-formations — ближние формации (прозрачный фон) ──────────────
+// Шаг 17.2 (воздушная перспектива): слой БЛИЖЕ средней стены → ТЕМНЕЕ её
+// (градиент глубины: бездна светлая → мегаволт в дымке → средняя стена →
+// ближние формации → чёрные валуны у камеры).
 {
   const c = new Canvas(BGW, BGH)
   const rnd = mulberry32(1604)
   // Большие двухтоновые сталактиты с кромкой света.
-  for (let k = 0; k < 8; k++) {
+  for (let k = 0; k < 9; k++) {
     const x = Math.floor(rnd() * BGW)
     const w = 80 + Math.floor(rnd() * 90)
-    const len = 280 + Math.floor(rnd() * 240)
+    const len = 280 + Math.floor(rnd() * 260)
     for (const dx of [-BGW, 0, BGW]) {
-      coneDown(c, x + dx + 9, 0, w, len, [0x10, 0x13, 0x20], 210)
-      coneDown(c, x + dx, 0, w, len, [0x1e, 0x22, 0x34], 245)
+      coneDown(c, x + dx + 9, 0, w, len, [0x0d, 0x10, 0x1c], 215)
+      coneDown(c, x + dx, 0, w, len, [0x17, 0x1b, 0x2c], 250)
       // левая кромка ловит дальний свет
       for (let i = 0; i <= len; i += 4) {
         const t = i / len
         const half = Math.max(1, Math.round((w / 2) * (1 - t * t)))
-        c.px(x + dx - half - 1, i, [0x36, 0x3e, 0x5a], 70)
+        c.px(x + dx - half - 1, i, [0x32, 0x3a, 0x56], 66)
       }
     }
   }
   // Сталагмитовые горы.
-  for (let k = 0; k < 5; k++) {
+  for (let k = 0; k < 6; k++) {
     const x = Math.floor(rnd() * BGW)
     const w = 90 + Math.floor(rnd() * 110)
-    const h = 140 + Math.floor(rnd() * 160)
+    const h = 140 + Math.floor(rnd() * 170)
     for (const dx of [-BGW, 0, BGW]) {
-      moundUp(c, x + dx, BGH - 1, w, h, [0x1a, 0x1e, 0x2e], 240)
+      moundUp(c, x + dx, BGH - 1, w, h, [0x13, 0x17, 0x27], 246)
     }
   }
   // Кристальные веера — ярчайшие акценты фона.
