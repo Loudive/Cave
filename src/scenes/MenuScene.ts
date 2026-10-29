@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import { GENES, loadGeneSave } from '../config/genes'
 import { loadNestSave } from '../systems/NestSave'
 import { AudioSystem } from '../systems/Audio'
+import { armChallengerFromUrl, loadPendingChallenger } from '../systems/Reign'
 
 /**
  * MenuScene — шаг 8 + звук шага 10.
@@ -104,6 +105,19 @@ export class MenuScene extends Phaser.Scene {
 
     // Шаг 11: вход в «Гнездо» — хаб мета-прогрессии (древо/бестиарий/гены).
     const nest = loadNestSave()
+    // Шаг 25 (PvP): вызов Узурпатора из ссылки ?challenger=КОД —
+    // валидируем и запоминаем ОДИН раз (параметр вычищается из URL:
+    // F5 не перевзводит вызов, а победа над Узурпатором снимает его).
+    const armedChallenger = armChallengerFromUrl() ? loadPendingChallenger() : null
+    if (armedChallenger) {
+      this.add.text(cx, cy + 16, `ВЫЗОВ ПРИНЯТ: Узурпатор «${armedChallenger.name}» · мощь ${armedChallenger.power} — ждёт в Гнездовье`, {
+        fontFamily: 'monospace',
+        fontSize: '13px',
+        color: '#B36BFF',
+        backgroundColor: '#16121f',
+        padding: { x: 10, y: 5 },
+      }).setOrigin(0.5).setDepth(11)
+    }
     const nestY = cy + 128
     const nestBtn = this.add.text(cx, nestY, `◈ ГНЕЗДО — древо · бестиарий · гены · статистика (${nest.essence}◈)`, {
       fontFamily: 'monospace',

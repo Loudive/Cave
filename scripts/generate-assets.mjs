@@ -12,7 +12,7 @@
  * эти текстуры — «программные ассеты» для загрузчика и фолбэк-стиль проекта.
  */
 import { deflateSync } from 'node:zlib'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -1752,4 +1752,104 @@ console.log('Готово: assets/ обновлён (детерминирова�
     }
   }
   c.save('light-shaft.png')
+}
+
+// ── Шаг 25/26: Матка Улья, экспедиции, снаряжение ─────────────────────────
+
+/** Трассер военного 12×4: тёплая светящаяся стрела (ADD + tint в коде). */
+{
+  const c = new Canvas(12, 4)
+  for (let x = 0; x < 12; x++) {
+    const t = x / 11
+    const a = Math.round(255 * (0.25 + 0.75 * t))
+    c.px(x, 1, [0xff, 0xf2, 0xc8], a)
+    c.px(x, 2, [0xff, 0xf2, 0xc8], a)
+    if (x > 7) c.px(x, 0, [0xff, 0xe0, 0x90], Math.round(a * 0.55))
+    if (x > 7) c.px(x, 3, [0xff, 0xe0, 0x90], Math.round(a * 0.55))
+  }
+  c.px(10, 1, [0xff, 0xff, 0xf0], 255)
+  c.px(11, 2, [0xff, 0xff, 0xf0], 255)
+  c.save('bullet.png')
+}
+
+/** Кладка Матки 40×30: кожистая мембрана-гроздь с алыми «жилками». */
+{
+  const c = new Canvas(40, 30)
+  const rnd = mulberry32(2525)
+  // Гроздь из 5 сросшихся яиц — органика (organicBlob, шаг 22).
+  const eggs = [
+    { cx: 20, cy: 18, rx: 13, ry: 10 },
+    { cx: 11, cy: 22, rx: 8, ry: 6 },
+    { cx: 29, cy: 21, rx: 8, ry: 6 },
+    { cx: 16, cy: 10, rx: 7, ry: 6 },
+    { cx: 25, cy: 12, rx: 6, ry: 5 },
+  ]
+  for (const e of eggs) {
+    c.organicBlob(e.cx, e.cy, e.rx, e.ry, [0x1e, 0x16, 0x20], 255, Math.floor(rnd() * 9999), { amp: 0.12 })
+  }
+  for (const e of eggs) {
+    c.organicBlob(e.cx, e.cy, e.rx - 3, e.ry - 3, [0x2e, 0x20, 0x30], 200, Math.floor(rnd() * 9999), { amp: 0.1 })
+  }
+  // Багровые «просветы» под скорлупой — кладка дышит.
+  for (const p of [[14, 20], [22, 16], [27, 20], [18, 12]]) {
+    c.radial(p[0], p[1], 3.2, [0xe2, 0x3a, 0x4e], [[0, 0.85], [0.5, 0.4], [1, 0]])
+  }
+  c.save('queen-egg.png')
+}
+
+// Плейсхолдеры новых видов (Шаг 25/26): тёмные читаемые силуэты 4×68×46,
+// чтобы игра была играбельной ДО прихода нейро-листов (как в шаге 20).
+// ГРАБЛЯ шага 20: генератор НИКОГДА не трогает нейро-ассеты — только если
+// файла нет. Нейро-лист положишь — плейсхолдер останется в прошлом.
+{
+  const OUT = join(dirname(fileURLToPath(import.meta.url)), '..', 'assets')
+  // Плейсхолдер = один canvas 272×46 (4 кадра 68×46), рисуем все 4 кадра.
+  const placeholderSheet = (file, draw) => {
+    const full = join(OUT, file)
+    if (existsSync(full)) return
+    const c = new Canvas(68 * 4, 46)
+    for (let f = 0; f < 4; f++) draw(c, f * 68, f)
+    c.save(file)
+  }
+  // Матка: исполинская туша, корона наростов, гроздь глаз.
+  placeholderSheet('mob-queen.png', (c, ox, f) => {
+    const rnd = mulberry32(9000 + f)
+    // Брюхо-купол (кадр почти весь — она огромная, масштаб ставит код).
+    c.organicBlob(ox + 34, 26, 26, 17, [0x1c, 0x12, 0x1e], 255, 71, { amp: 0.09 })
+    c.organicBlob(ox + 30, 28, 18, 11, [0x2b, 0x1c, 0x2c], 230, 72, { amp: 0.1 })
+    // Корона костяных наростов.
+    for (let i = 0; i < 5; i++) {
+      const bx = ox + 14 + i * 10
+      const bh = 8 + Math.round(rnd() * 5)
+      for (let y = 0; y < bh; y++) c.px(bx, 12 - y, [0x3a, 0x30, 0x42], 255 - y * 9)
+    }
+    // Гроздь алых глаз.
+    for (const p of [[24, 20], [29, 17], [34, 21], [39, 18], [44, 22]]) {
+      c.px(ox + p[0], p[1], [0xff, 0x5a, 0x72], 255)
+      c.px(ox + p[0] - 1, p[1], [0x8a, 0x1a, 0x2a], 160)
+    }
+    // Багровое свечение брюха (пульс по кадрам — «дышит»).
+    const glow = 0.35 + 0.25 * Math.sin(f * 1.6)
+    c.radial(ox + 30, 32, 12, [0xe2, 0x3a, 0x4e], [[0, glow], [1, 0]])
+  })
+
+  // Учёный: костюм химзащиты, круглый шлем с тёплым фонарём.
+  placeholderSheet('mob-scientist.png', (c, ox) => {
+    c.roundRect(ox + 30, 18, 37, 41, 4, [0x2a, 0x28, 0x33], 255)  // корпус
+    c.roundRect(ox + 31, 8, 36, 18, 6, [0x3c, 0x3a, 0x46], 255)   // шлем
+    c.px(ox + 33, 13, [0xf2, 0xc1, 0x4e], 255)                    // фонарь
+    c.px(ox + 34, 13, [0xff, 0xe8, 0xb0], 200)
+    c.rect(ox + 39, 24, 40, 34, [0x22, 0x20, 0x2a], 200)          // чемоданчик
+    c.rect(ox + 32, 41, 33, 44, [0x1a, 0x18, 0x22], 230)          // ноги
+  })
+
+  // Конвоир: броня, тактический шлем, карабин.
+  placeholderSheet('mob-marine.png', (c, ox) => {
+    c.roundRect(ox + 29, 17, 37, 41, 3, [0x24, 0x28, 0x30], 255)  // бронежилет
+    c.roundRect(ox + 30, 7, 36, 17, 5, [0x33, 0x38, 0x42], 255)   // шлем
+    c.px(ox + 33, 12, [0xe2, 0x3a, 0x4e], 255)                    // визор
+    c.rect(ox + 38, 26, 52, 28, [0x4a, 0x44, 0x38], 255)          // карабин
+    c.px(ox + 51, 26, [0xf2, 0xc1, 0x4e], 220)                    // дульная лампа
+    c.rect(ox + 31, 41, 33, 44, [0x1c, 0x20, 0x28], 230)          // ноги
+  })
 }

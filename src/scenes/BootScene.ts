@@ -51,7 +51,9 @@ export class BootScene extends Phaser.Scene {
     // ТЕКСТУРЫ 'mob-*' НЕ в ASSETS-манифесте — они грузятся ЗДЕСЬ
     // спрайтлистами (та же сетка кадров, что hero-*).
     // Шаг 24: + два хищника глубины (сталкер, пожиратель) — gen-step24.mjs.
-    for (const id of ['slug', 'bat', 'reaper', 'bloodsucker', 'shell', 'lava', 'stalker', 'devourer'] as const) {
+    // Шаг 25/26: список видов — единый источник (enemies.json), новые
+    // (Матка, люди экспедиций) подключаются БЕЗ правки загрузчика.
+    for (const id of Object.keys(ENEMIES.species)) {
       this.load.spritesheet(`mob-${id}`, assetUrl(`mob-${id}.png`), {
         frameWidth: HERO_FRAME.w,
         frameHeight: HERO_FRAME.h,
@@ -93,7 +95,7 @@ export class BootScene extends Phaser.Scene {
     // Шаг 20: walk-анимации мобов (4 кадра, fps из enemies.json species.anim).
     // Шаг 24: список видов — единый источник (enemies.json), чтобы новые
     // хищники подключались без правки кода загрузчика.
-    for (const id of ['slug', 'bat', 'reaper', 'bloodsucker', 'shell', 'lava', 'stalker', 'devourer'] as const) {
+    for (const id of Object.keys(ENEMIES.species)) {
       const key = `mob-${id}-walk`
       if (this.anims.exists(key)) continue
       const a = ENEMIES.species[id].anim

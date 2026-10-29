@@ -21,6 +21,8 @@ import {
 } from '../systems/NestSave'
 import { AudioSystem } from '../systems/Audio'
 import { hexInt } from '../config/light'
+import { QUEEN } from '../config/queen'
+import { loadPendingChallenger, challengerShareUrl } from '../systems/Reign'
 
 /**
  * NestScene — шаг 11: хаб мета-прогрессии «Гнездо».
@@ -49,7 +51,7 @@ const COL_ACCENT = '#58E6C8'
 /** Клетка узла древа (шаг 24): иконка 40×40 + пипсы рангов внутри. */
 const NODE_CELL = 40
 
-type TabIndex = 0 | 1 | 2 | 3
+type TabIndex = 0 | 1 | 2 | 3 | 4
 
 /** Состояние узла (ранговое). */
 type NodeState = 'maxed' | 'buyable' | 'locked-branch' | 'locked-tier' | 'no-money'
@@ -223,6 +225,7 @@ export class NestScene extends Phaser.Scene {
       case 1: this.buildBestiaryTab(); break
       case 2: this.buildGenomesTab(); break
       case 3: this.buildStatsTab(); break
+      case 4: this.buildThroneTab(); break
     }
   }
 
@@ -647,6 +650,8 @@ export class NestScene extends Phaser.Scene {
       `мобов сожрано (всего) — ${s.totalEaten}`,
       `лучший трапезный забег — ${s.bestEaten} добычи`,
       `Эссенции заработано — ${s.totalEssence}`,
+      `Маток Улья повергнуто — ${s.queensSlain}`,
+      `Узурпаторов (PvP) побеждено — ${s.challengersBeaten}`,
       '',
       `лучший забег: ${s.bestRun.essence}◈ · ${s.bestRun.depthM} м · ${s.bestRun.eaten} съедено`,
     ]
@@ -659,6 +664,86 @@ export class NestScene extends Phaser.Scene {
       'Эссенция капает за каждое убийство и поедание, щедрее — в глубине:\nбагровые мобы старых полос жирнее и опаснее сразу.', {
       fontFamily: 'monospace', fontSize: '12px', color: COL_FAINT, align: 'center',
     }).setOrigin(0.5))
+  }
+
+  // ── Вкладка: ТРОН (шаг 25 — Матка Улья, Код Матки, PvP-вызовы) ─────────
+
+  private buildThroneTab(): void {
+    const { width } = this.scale
+    const reign = this.save.reign
+    const s = this.save.stats
+    const every = QUEEN.lair.everyNDepths
+
+    if (!reign) {
+      this.tabAdd(this.add.text(width / 2, 148, 'ТРОН ПУСТ', {
+        fontFamily: 'Georgia, "Times New Roman", serif',
+        fontSize: '26px', color: '#E23A4E', fontStyle: 'bold',
+      }).setOrigin(0.5, 0))
+      this.tabAdd(this.add.text(width / 2, 200, [
+        `Матка Улья спит в Гнездовье — на ${every}-м слое глубины.`,
+        'Она — мать всего выводка этих пещер.',
+        'Пожри её, и улей примет твою плоть: ты станешь новой Маткой.',
+        '',
+        'Глубина бесконечна: каждая следующая Матка сильнее,',
+        'а экспедиции с поверхности приходят злее.',
+      ].join('\n'), {
+        fontFamily: 'monospace', fontSize: '14px', color: COL_TEXT,
+        align: 'center', lineSpacing: 9,
+      }).setOrigin(0.5, 0))
+      this.tabAdd(this.add.text(width / 2, 420,
+        'Цель всегда видна в правом верхнем углу пещеры — иди вниз.', {
+        fontFamily: 'monospace', fontSize: '12px', color: COL_FAINT, align: 'center',
+      }).setOrigin(0.5))
+    } else {
+      this.tabAdd(this.add.text(width / 2, 132, `ТВОЯ МАТКА — ${reign.name.toUpperCase()}`, {
+        fontFamily: 'Georgia, "Times New Roman", serif',
+        fontSize: '24px', color: '#E8A34F', fontStyle: 'bold',
+      }).setOrigin(0.5, 0))
+      this.tabAdd(this.add.text(width / 2, 178, [
+        `мощь билда — ${reign.power}`,
+        `первое Гнездовье пало на ${reign.depthM} м`,
+        `Маток повергнуто — ${s.queensSlain} · Узурпаторов (PvP) — ${s.challengersBeaten}`,
+      ].join('\n'), {
+        fontFamily: 'monospace', fontSize: '14px', color: COL_TEXT,
+        align: 'center', lineSpacing: 8,
+      }).setOrigin(0.5, 0))
+
+      // Код Матки — сердце PvP-связки: ссылкой его отправляют друзьям.
+      this.tabAdd(this.add.text(width / 2, 268, 'КОД МАТКИ', {
+        fontFamily: 'monospace', fontSize: '12px', color: COL_DIM,
+      }).setOrigin(0.5, 0))
+      const codeBtn = this.add.text(width / 2, 294, reign.code, {
+        fontFamily: 'monospace', fontSize: '20px', color: '#58E6C8',
+        backgroundColor: '#101820',
+        padding: { x: 14, y: 8 },
+      }).setOrigin(0.5).setInteractive({ useHandCursor: true })
+      codeBtn.on(Phaser.Input.Events.POINTER_DOWN, () => {
+        const url = challengerShareUrl(reign.code)
+        void navigator.clipboard?.writeText(url).then(() => {
+          codeBtn.setText('[ ССЫЛКА-ВЫЗОВ СКОПИРОВАНА ✓ ]')
+          this.time.delayedCall(1400, () => codeBtn.setText(reign.code))
+        }).catch(() => {
+          codeBtn.setText(url)
+          this.time.delayedCall(2600, () => codeBtn.setText(reign.code))
+        })
+      })
+      this.tabAdd(codeBtn)
+      this.tabAdd(this.add.text(width / 2, 342,
+        'Тапни по коду — скопируется ссылка-вызов. Отправь её другу:\nего Маткой в Гнездовье станешь ТЫ (мощь твоего билда — его проблема).', {
+        fontFamily: 'monospace', fontSize: '12px', color: COL_FAINT, align: 'center',
+      }).setOrigin(0.5))
+    }
+
+    // Активный вызов Узурпатора (пришёл по чужой ссылке).
+    const ch = loadPendingChallenger()
+    if (ch) {
+      this.tabAdd(this.add.text(width / 2, 430,
+        `⚔ ВЫЗОВ ПРИНЯТ: Узурпатор «${ch.name}» (мощь ${ch.power}) ждёт в Гнездовье ${every}-го слоя`, {
+        fontFamily: 'monospace', fontSize: '13px', color: '#B36BFF',
+        backgroundColor: '#16121f',
+        padding: { x: 10, y: 6 },
+      }).setOrigin(0.5))
+    }
   }
 
   /** Уход из Гнезда: сохранить профиль, уйти с фейдом. */

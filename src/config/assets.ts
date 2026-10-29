@@ -71,6 +71,9 @@ export const ASSETS: AssetEntry[] = [
   { key: 'spore-bolt', file: 'spore-bolt.png' },
   { key: 'fire-patch', file: 'fire-patch.png' },
   { key: 'ring', file: 'ring.png' },
+  // Шаг 26: трассеры военных экспедиций + кладки Гнездовья Матки.
+  { key: 'bullet', file: 'bullet.png' },
+  { key: 'queen-egg', file: 'queen-egg.png' },
   // Juice (шаг 9): искры для бёрстов.
   { key: 'spark', file: 'spark.png' },
   // Шаг 13: пыль приземления (сквош-джус) и столбы света из потолочных трещин.
@@ -107,7 +110,7 @@ export const ASSETS: AssetEntry[] = [
  * обломок никуда не делся», а на диске файл уже чистый). Поднимай версию
  * при КАЖДОМ изменении файлов в assets/ (мобы, герой, фоны, glows).
  */
-const ASSET_VERSION = 's24'
+const ASSET_VERSION = 's25'
 
 /**
  * URL файла ассета. publicDir='assets' в Vite кладёт PNG в корень dist,

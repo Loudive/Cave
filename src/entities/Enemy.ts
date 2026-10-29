@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import { ENEMIES, armorResist, type AttackConfig, type DamageType, type SpeciesConfig } from '../config/enemies'
+import { EXPEDITION } from '../config/expedition'
 import { biomeIndexAtMeters } from '../gen/cave'
 import type { Carcass } from '../systems/Eating'
 import { LIGHT } from '../config/light'
@@ -116,6 +117,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private anchorY = 0
   private targetMob: Enemy | null = null
   private targetCarcass: Carcass | null = null
+  /** Шаг 26: марш-цель экспедиции — в патруле идти к точке отряда, а не блуждать. */
+  marchTo: { x: number; y: number } | null = null
   private pursuingPlayer = false
   private lastAttacker: Enemy | null = null
   private lastAttackedAt = -Infinity
@@ -987,6 +990,13 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       return
     }
 
+    // Шаг 26: марш экспедиции — вместо блуждания: отряд идёт к цели
+    // (люди с поверхности), с паузами «снять показания» и прыжком через уступ.
+    if (this.marchTo) {
+      this.updateMarch(now)
+      return
+    }
+
     // Патруль: пауза → направление → ходьба; поводок тянет к гнезду.
     if (now >= this.patrolNextChange) {
       if (this.patrolDir !== 0) {
@@ -1012,6 +1022,46 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       this.hopAcc = 0
       this.tweenSquish(1.06, 0.92, 260)
     }
+  }
+
+  /** Шаг 26: марш к точке отряда (экспедиции): идти, паузить «измерения», прыгать через уступы. */
+  private updateMarch(now: number): void {
+    const body = this.body as Phaser.Physics.Arcade.Body
+    const w = this.species.patrol!
+    const t = this.marchTo!
+    const dx = t.x - this.x
+    const dy = t.y - this.y
+
+    // Ритм: пауза «снять показания» ↔ шаг (таймер патруля переиспользуется).
+    if (this.patrolDir === 0) {
+      if (now < this.patrolNextChange) {
+        body.velocity.x = Phaser.Math.Linear(body.velocity.x, 0, 0.2)
+        return
+      }
+      this.patrolDir = 1
+      this.patrolNextChange = now + Phaser.Math.Between(w.moveMs[0], w.moveMs[1])
+    } else if (now >= this.patrolNextChange) {
+      if (Math.random() < EXPEDITION.march.marchPauseChance) {
+        this.patrolDir = 0
+        this.patrolNextChange = now + Phaser.Math.Between(w.pauseMs[0], w.pauseMs[1])
+      } else {
+        this.patrolNextChange = now + Phaser.Math.Between(w.moveMs[0], w.moveMs[1])
+      }
+    }
+
+    // На точке — стоим и светим фонарём (марш-цель обновит Expedition).
+    if (Math.abs(dx) < 12 && Math.abs(dy) < 72) {
+      body.velocity.x = Phaser.Math.Linear(body.velocity.x, 0, 0.2)
+      return
+    }
+
+    const dirX = Math.sign(dx) || 1
+    body.velocity.x = Phaser.Math.Linear(body.velocity.x, dirX * w.speed * this.speedMult, 0.16)
+    // Уступ выше цели — прыжок (как в погоне, но спокойнее).
+    if (body.blocked.down && (body.blocked.left || body.blocked.right) && dy < -10) {
+      body.velocity.y = EXPEDITION.march.hopVelocityY
+    }
+    this.setFlipX(dirX < 0)
   }
 
   // ── Локомоция ──────────────────────────────────────────────────────────────
@@ -1284,7 +1334,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
    * для идущих по земле; при остановке — пауза (кадр замирает, «стоит
    * и дышит» — потом ещё и присед-сквош твинами поверж).
    */
-  private updateAnim(): void {
+  /** Шаг 25: публично для Queen (босс переиспользует анимацию вида). */
+  updateAnim(): void {
     if (this.dead) return
     const key = `mob-${this.speciesId}-walk`
     if (this.anims.currentAnim?.key !== key) {
@@ -1299,7 +1350,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     }
   }
 
-  private syncTwin(): void {
+  /** Шаг 25: публично для Queen (босс синхронит силуэт сам). */
+  syncTwin(): void {
     this.twin.setPosition(this.x, this.y)
     this.twin.setFlipX(this.flipX)
     this.twin.setScale(this.scaleX, this.scaleY)

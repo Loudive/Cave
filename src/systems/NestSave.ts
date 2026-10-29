@@ -37,6 +37,26 @@ export interface NestStats {
   totalEssence: number
   /** Лучший забег (валюта гордости, гайд). */
   bestRun: BestRun
+  /** Шаг 25: сколько Маток Улья повергнуто (включая Узурпаторов). */
+  queensSlain: number
+  /** Шаг 25: сколько чужих Узурпаторов (PvP-вызовов) побеждено. */
+  challengersBeaten: number
+}
+
+/** Шаг 25: ТРОН — след победы над Маткой (билд → Код Матки). */
+export interface ReignData {
+  name: string
+  power: number
+  code: string
+  depthM: number
+  at: number
+}
+
+/** Шаг 25: активный PvP-вызов (Узурпатор из чужого кода). */
+export interface ChallengerData {
+  name: string
+  power: number
+  code: string
 }
 
 export interface NestSave {
@@ -53,6 +73,8 @@ export interface NestSave {
   stats: NestStats
   /** Сиды посещённых пещер (кап 300 — «пещеры посещено», шаг 11). */
   seenSeeds: string[]
+  /** Шаг 25: ТРОН — победа над Маткой Улья (null — трон пуст). */
+  reign: ReignData | null
 }
 
 export function emptyStats(): NestStats {
@@ -65,6 +87,8 @@ export function emptyStats(): NestStats {
     totalEaten: 0,
     totalEssence: 0,
     bestRun: { essence: 0, depthM: 0, eaten: 0 },
+    queensSlain: 0,
+    challengersBeaten: 0,
   }
 }
 
@@ -78,6 +102,7 @@ export function emptySave(): NestSave {
     genomes: {},
     stats: emptyStats(),
     seenSeeds: [],
+    reign: null,
   }
 }
 
@@ -128,11 +153,26 @@ function sanitize(parsed: unknown): NestSave {
     out.stats.cavesVisited = num(s.cavesVisited)
     out.stats.totalEaten = num(s.totalEaten)
     out.stats.totalEssence = num(s.totalEssence)
+    out.stats.queensSlain = num(s.queensSlain)
+    out.stats.challengersBeaten = num(s.challengersBeaten)
     if (isObj(s.bestRun)) {
       out.stats.bestRun = {
         essence: num(s.bestRun.essence),
         depthM: num(s.bestRun.depthM),
         eaten: num(s.bestRun.eaten),
+      }
+    }
+  }
+  // Шаг 25: Трон (аддитивно — старые сейвы без него живут дальше).
+  if (isObj(parsed.reign)) {
+    const r = parsed.reign
+    if (typeof r.name === 'string' && typeof r.power === 'number' && typeof r.code === 'string') {
+      out.reign = {
+        name: r.name.slice(0, 40),
+        power: Math.max(0, Math.round(r.power)),
+        code: r.code.slice(0, 40),
+        depthM: typeof r.depthM === 'number' ? Math.round(r.depthM) : 0,
+        at: typeof r.at === 'number' ? Math.round(r.at) : 0,
       }
     }
   }

@@ -4,8 +4,14 @@ import { GEN, bandColorInt } from '../config/gen'
 import { LIGHT } from '../config/light'
 import { BALANCE } from '../config/balance'
 import { ENEMIES } from '../config/enemies'
+import { QUEEN } from '../config/queen'
+import { EXPEDITION } from '../config/expedition'
 import { Creature, CreatureKeys } from '../entities/Creature'
 import { Enemy, type EnemyContext, type KillerKind } from '../entities/Enemy'
+import { Queen, type QueenChallenger, type QueenHooks } from '../entities/Queen'
+import { Bullets } from '../systems/Bullets'
+import { Expedition } from '../systems/Expedition'
+import { makeReign, loadPendingChallenger, clearPendingChallenger, challengerShareUrl, reignNameCount } from '../systems/Reign'
 import { Spores } from '../systems/Spores'
 import { FireTrail } from '../systems/FireTrail'
 import { Ecosystem, type NestRecord } from '../systems/Ecosystem'
@@ -34,7 +40,7 @@ import { AudioSystem } from '../systems/Audio'
 import { QUALITY } from '../systems/quality'
 import { buildCaveTilemap } from '../systems/TileBuilder'
 import { paintCave, erodeCave, type PaintedCave } from '../systems/CavePainter'
-import { generateCave, biomeIndexAtMeters, type CaveData } from '../gen/cave'
+import { generateCave, biomeIndexAtMeters, isSolid, type CaveData } from '../gen/cave'
 import { Rng, hashSeed } from '../gen/rng'
 import { MUTATIONS } from '../config/mutations'
 import { VFX } from '../config/vfx'
@@ -155,6 +161,23 @@ export class CaveScene extends Phaser.Scene {
   private tileLayers: import('../systems/TileBuilder').CaveLayers | null = null
   /** Шаг 15: запечённый органический рендер стен (чанки + куллинг). */
   private paint: PaintedCave | null = null
+  // ── Шаг 25: Матка Улья — финал ──
+  /** Матка этого слоя (null — обычный слой с вратами вниз). */
+  private queen: Queen | null = null
+  /** Активный PvP-вызов: Узурпатор чужого билда (ссылка ?challenger=…). */
+  private challenger: QueenChallenger | null = null
+  /** Босс-бар Матки (uiRoot, дизайн-координаты). */
+  private bossBar: Phaser.GameObjects.Container | null = null
+  private bossBarFill: Phaser.GameObjects.Rectangle | null = null
+  /** Шаг 25: «всегда видна следующая цель» (GDD §1) — строка-подсказка в HUD. */
+  private goalHintStr = ''
+  // ── Шаг 26: экспедиции людей ──
+  /** Трассеры военных (прямые снаряды + вспышки у дула). */
+  private bullets!: Bullets
+  /** Директор волн: отряды с поверхности, марш/паника/побег. */
+  private expedition!: Expedition
+  /** Баннер «экспедиция с поверхности» (uiRoot, тёплый). */
+  private expBanner: Phaser.GameObjects.Text | null = null
 
   constructor() {
     super('Cave')
@@ -230,6 +253,10 @@ export class CaveScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.paint?.destroy()
       this.paint = null
+      // Шаг 26: света экспедиции/пули — тоже за нами (маска общая).
+      this.expedition?.destroy()
+      this.bullets?.destroyAll()
+      this.hideBossBar()
     })
 
     // ── Атмосфера (шаг 5) ───────────────────────────────────────────────────
@@ -376,6 +403,29 @@ export class CaveScene extends Phaser.Scene {
     this.eco = new Ecosystem(this, {
       spawnAtNest: (nest) => this.spawnEnemyAtNest(nest),
     })
+
+    // Шаг 26: трассеры военных и директор экспедиций (заказ игрока:
+    // «учёные убегают, военные стреляют»). Урон людям/от них — общий
+    // пайплайн depthScale: глубинные конвои стреляют больнее.
+    this.bullets = new Bullets(this, this.cave, this.mask, this.blood, {
+      onHitPlayer: (damage) => this.combat.hurtPlayer(damage, 'экспедиция'),
+      onHitMob: (victim, applied) => {
+        this.blood.burst(victim.x, victim.y, { count: 6, dirDeg: 90, spreadDeg: 360, sticky: false })
+        this.blood.number(victim.x, victim.y - 14, `${applied}`, '#F2C14E')
+      },
+    })
+    this.expedition = new Expedition(this, this.cave, this.mask, {
+      spawnHuman: (id, x, y, force) => this.addEnemyAt(id, x, y, -1, force),
+      banner: (text) => this.showExpeditionBanner(text),
+      onEscape: (e) => {
+        this.eco.ring(e.x, e.y, EXPEDITION.panic.escapedRingColor, ENEMIES.eco.ring.alphaSqueak)
+        this.blood.number(e.x, e.y - 18, 'убежал', '#E8A34F')
+      },
+      onSquad: () => this.audio.play('eliteRoar', 0.3),
+    })
+    // Шаг 25: активный вызов Узурпатора (ссылка с чужим Кодом Матки).
+    const pending = loadPendingChallenger()
+    this.challenger = pending ? { name: pending.name, power: pending.power } : null
 
     // Шаг 9: juice-слой (вспышки, хроматика, слоу-мо, Glow, искры).
     this.vfx = new Vfx(this, this.blood, this.hitStop)
@@ -532,7 +582,12 @@ export class CaveScene extends Phaser.Scene {
     this.buildMushrooms()
     this.buildNests()
     this.buildAmbientSpores()
-    this.buildExitGate()
+    // Шаг 25: слой-финал — вместо врат вниз ГНЕЗДОВЬЕ с Маткой Улья.
+    if (this.isQueenLayer()) {
+      this.buildQueenLair()
+    } else {
+      this.buildExitGate()
+    }
     // Шаг 13 (Dead Cells): столбы света из потолочных трещин (верхняя полоса).
     this.buildLightShafts()
     this.motes = new SilhouetteMotes(this, this.cave, this.mask)
@@ -653,6 +708,11 @@ export class CaveScene extends Phaser.Scene {
     })
 
     this.registerHooks(genMs)
+
+    // Шаг 25: цель забега — в HUD («всегда видна следующая цель», GDD §1).
+    this.goalHintStr = this.computeGoalHint()
+    // Шаг 26: тест-хук (agent-browser): немедленно спустить экспедицию.
+    ;(window as unknown as { __EXP__?: () => void }).__EXP__ = () => this.expedition?.forceNextIn(0)
   }
 
   override update(time: number, delta: number): void {
@@ -715,6 +775,12 @@ export class CaveScene extends Phaser.Scene {
         this.eco.update(time)
         // Шаг 12: жизнь сама находит игрока — процедурный спавн вне экрана.
         this.roamSpawnTick(time)
+        // Шаг 26: экспедиции — директор волн (спавн/марш/побег) + трассеры.
+        this.expedition.update(time, this.creature.x, this.creature.y, this.vitals.alive)
+        this.expedition.tick(time, this.creature.x, this.creature.y)
+        this.bullets.update(time, this.creature.x, this.creature.y, this.vitals.alive, this.enemies)
+        // Шаг 25: босс-бар Матки живёт, пока жива она.
+        this.updateBossBar()
 
         // Шаг 8: «Споровый вдох» — зона Грибных полян.
         const biomeIdx = biomeIndexAtMeters(this.cave.depthOffsetMeters + this.creature.y * GEN.map.metersPerPixel)
@@ -837,7 +903,7 @@ export class CaveScene extends Phaser.Scene {
       this.maxMeters = Math.max(this.maxMeters, meters)
       const band = GEN.biomeBands[biomeIndexAtMeters(this.cave.depthOffsetMeters + this.creature.y * GEN.map.metersPerPixel)]
       // Шаг 10: setText перерисовывает канву-текстуру — обновляем только сменой строки.
-      const hudLine = `ГЛУБИНА ${meters} м · ${band.name}\nseed ${this.seedBase} · слой ${this.depth}`
+      const hudLine = `ГЛУБИНА ${meters} м · ${band.name}\nseed ${this.seedBase} · слой ${this.depth}${this.goalHintStr}`
       if (hudLine !== this.lastHudLine) {
         this.lastHudLine = hudLine
         this.hudText.setText(hudLine)
@@ -862,8 +928,10 @@ export class CaveScene extends Phaser.Scene {
       this.mask.setHeartbeat(heartbeat)
 
       // Шаг 10: кроссфейд музыки (бой/глубина) + сердцебиение при тревоге.
-      // Угроза = игрок атакует или кто-то целится/преследует/замахивается.
+      // Угроза = игрок атакует, кто-то целится/преследует/замахивается,
+      // либо МАТКА проснулась (шаг 25 — бой с боссом = боевая музыка).
       let combatActive = this.combat.state !== 'ready'
+        || (this.queen !== null && this.queen.activated && !this.queen.dead)
       for (const e of this.enemies) {
         if (e.dead) continue
         const st = e.aiState
@@ -984,6 +1052,15 @@ export class CaveScene extends Phaser.Scene {
   private handleEnemyDeath(enemy: Enemy, killer: KillerKind): void {
     const idx = this.enemies.indexOf(enemy)
     if (idx >= 0) this.enemies.splice(idx, 1)
+
+    // Шаг 25: Матка Улья — НЕ туша: её смерть = ПОБЕДА (спец-последовательность).
+    if (enemy instanceof Queen) {
+      this.handleQueenVictory(enemy, killer)
+      return
+    }
+    // Шаг 26: экспедиция — образцы и снаряжение (бонус Эссенции сверху вида).
+    if (enemy.speciesId === 'scientist') enemy.essenceBonus += EXPEDITION.rewards.sampleEssence
+    if (enemy.speciesId === 'marine') enemy.essenceBonus += EXPEDITION.rewards.marineEssence
 
     // Шаг 11: бестиарий — «убито» засчитывается за любую смерть от игрока.
     if (killer === 'player') recordBestiary(enemy.speciesId, false)
@@ -1396,14 +1473,14 @@ export class CaveScene extends Phaser.Scene {
   }
 
   /** Тест-хук и возрождение: создать моба вида у точки. */
-  private addEnemyAt(speciesId: string, wx: number, wy: number, nestIndex = -1): Enemy | null {
-    if (this.enemies.length >= BALANCE.spawn.maxAlive) return null
+  private addEnemyAt(speciesId: string, wx: number, wy: number, nestIndex = -1, force = false): Enemy | null {
+    if (!force && this.enemies.length >= BALANCE.spawn.maxAlive) return null
     const enemy = new Enemy(this, wx, wy, speciesId, this.enemyCallbacks())
     enemy.nestIndex = nestIndex
     // Шаг 24: глубинное усиление — «чем ниже мобы, тем сильнее»
     // (множители полосы биома + багровое сияние + бонус Эссенции).
     enemy.applyDepthScale(this.cave.depthOffsetMeters + wy * GEN.map.metersPerPixel)
-    if (this.tileLayers) {
+    if (this.tileLayers && speciesId !== 'queen') {
       this.physics.add.collider(enemy, this.tileLayers.solid)
     }
     this.enemies.push(enemy)
@@ -1441,6 +1518,13 @@ export class CaveScene extends Phaser.Scene {
       onShootSpores: (attacker, tx, ty) => {
         // Шаг 10: шипение спор (гайд: «шипение»).
         this.audio.play('hiss')
+        // Шаг 26: военные стреляют ТРАССЕРАМИ (прямые, без гравитации),
+        // жнецы — спорами; Матка — кислотным плевком (тоже Spores).
+        if (attacker.speciesId === 'marine') {
+          this.audio.play('fire', 0.35)
+          this.bullets.fireFrom(attacker, tx, ty)
+          return
+        }
         this.spores.fireFrom(attacker, tx, ty)
       },
       onSpawnFire: (_enemy, x, y) => {
@@ -1768,8 +1852,415 @@ export class CaveScene extends Phaser.Scene {
     }
   }
 
-  /** Врата вглубь: пульсирующее цианное свечение в выходной камере. */
-  private buildExitGate(): void {
+  // ── Шаг 25: МАТКА УЛЬЯ — финальная цель забега ────────────────────────────
+
+  /** Слой-финал: каждый N-й слой глубины (4, 8, 12… — циклы NG+). */
+  private isQueenLayer(): boolean {
+    const every = QUEEN.lair.everyNDepths
+    return every > 0 && this.depth >= every && this.depth % every === 0
+  }
+
+  /** Номер Матки: 1 — первая (слой everyNDepths), 2+ — NG+ циклы. */
+  private queenCycle(): number {
+    return Math.max(1, Math.round(this.depth / QUEEN.lair.everyNDepths))
+  }
+
+  /** «Всегда видна следующая цель» (GDD §1): строка в HUD. */
+  private computeGoalHint(): string {
+    const every = QUEEN.lair.everyNDepths
+    const first = this.nestProfile.stats.queensSlain === 0
+    if (this.isQueenLayer()) {
+      if (this.challenger && this.queenCycle() === 1) {
+        return `\n★ ГНЕЗДОВЬЕ: УЗУРПАТОР «${this.challenger.name.toUpperCase()}» ЖДЁТ`
+      }
+      return first ? '\n★ ГНЕЗДОВЬЕ — МАТКА УЛЬЯ ЖДЁТ' : `\n★ ГНЕЗДОВЬЕ — НОВАЯ МАТКА (цикл ${this.queenCycle()})`
+    }
+    const nextQueen = every * (Math.floor(this.depth / every) + 1)
+    return first
+      ? `\nцель: Матка Улья — слой ${every}, спускайся ниже`
+      : `\nэпоха твоей Матки — следующая Матка на слое ${nextQueen}`
+  }
+
+  /**
+   * Гнездовье: выходная каверна слоя-финала — вместо врат вниз.
+   * Кладки-декор с багровыми гало, свет логова, сама Матка (или
+   * Узурпатор — если игрок принял чужой Код Матки по ссылке).
+   */
+  private buildQueenLair(): void {
+    const tile = this.cave.tile
+    const x = this.cave.exit.x * tile + tile / 2
+    const y = this.cave.exit.y * tile + tile / 2
+
+    // Кладки вокруг гнездовья: органика + тлеющие гало над маской тьмы.
+    const eggs = QUEEN.lair.eggs
+    const rng = new Rng(hashSeed(this.cave.seed + ':lair'))
+    for (let i = 0; i < eggs.count; i++) {
+      const ex = x + rng.range(-eggs.spreadTiles, eggs.spreadTiles) * tile
+      // Ищем пол под точкой (кладка лежит на камне, не в воздухе).
+      let floorY = -1
+      for (let dy = 0; dy <= 6; dy++) {
+        const ty = this.cave.exit.y + dy
+        if (isSolid(this.cave, Math.floor(ex / tile), ty)) {
+          floorY = ty * tile - 6
+          break
+        }
+      }
+      if (floorY < 0) continue
+      const scale = rng.range(eggs.scale[0], eggs.scale[1])
+      this.add.image(ex, floorY, 'queen-egg')
+        .setDepth(1.6)
+        .setScale(scale)
+        .setFlipX(rng.chance(0.5))
+      const glow = this.add.image(ex, floorY - 4, 'glow-red')
+        .setDepth(LIGHT.halo.depth)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setAlpha(eggs.glowAlpha)
+        .setScale(1.1)
+      this.tweens.add({
+        targets: glow,
+        alpha: { from: eggs.glowAlpha * 0.6, to: eggs.glowAlpha * 1.5 },
+        duration: 1300 + i * 90,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.InOut',
+      })
+      this.mask.add({ x: () => ex, y: () => floorY, radius: eggs.lightRadius })
+    }
+
+    // Свет самого Гнездовья: матку видно издали — багровое дыхание улья.
+    const ll = QUEEN.lair.lairLight
+    const halo = this.add.image(x, y - 14, 'glow-red')
+      .setDepth(LIGHT.halo.depth)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setAlpha(ll.haloAlpha)
+      .setScale(ll.haloScale)
+    this.tweens.add({
+      targets: halo,
+      alpha: { from: ll.haloAlpha * 0.7, to: ll.haloAlpha * 1.5 },
+      scale: { from: ll.haloScale * 0.9, to: ll.haloScale * 1.15 },
+      duration: 1500,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.InOut',
+    })
+    this.mask.add({ x: () => x, y: () => y, radius: ll.radius })
+
+    // Узурпатор подменяет ТОЛЬКО первую Матку (эпоха уже началась —
+    // глубинные Матки твоего мира остаются родными).
+    const challenger = this.queenCycle() === 1 ? this.challenger : null
+    this.queen = new Queen(this, x, y - QUEEN.stats.scale * 8, this.enemyCallbacks(), this.queenHooks(), {
+      cycle: this.queenCycle(),
+      challenger,
+    })
+    this.queen.applyDepthScale(this.cave.depthOffsetMeters + y * GEN.map.metersPerPixel)
+    this.queen.applyBossScale()
+    this.enemies.push(this.queen)
+
+    this.add.text(x, y - 64, challenger ? `⌂ ГНЕЗДОВЬЕ · ${challenger.name}` : '⌂ ГНЕЗДОВЬЕ', {
+      fontFamily: 'monospace',
+      fontSize: '11px',
+      color: challenger ? '#B36BFF' : '#E23A4E',
+    })
+      .setOrigin(0.5)
+      .setDepth(3)
+      .setAlpha(0.85)
+  }
+
+  /** Хуки босса: сцена решает, чем ответить на каждую фазу боя. */
+  private queenHooks(): QueenHooks {
+    return {
+      onActivate: (q) => {
+        this.audio.play('eliteRoar')
+        this.cameras.main.shake(320, 0.012)
+        this.eco.ring(q.x, q.y, '#E23A4E', 0.85)
+        this.vfx.chromaticHit(1.2)
+        this.blood.number(q.x, q.y - q.displayHeight / 2 - 10, q.title, '#E23A4E', true)
+        this.spawnBossBar(q.title)
+      },
+      onPhase: (q, phase) => {
+        this.audio.play('eliteRoar', 0.8)
+        this.eco.ring(q.x, q.y, '#E23A4E', ENEMIES.eco.ring.alphaHit)
+        this.cameras.main.shake(240, 0.008)
+        this.blood.number(q.x, q.y - q.displayHeight / 2 - 10, `ЯРОСТЬ ${phase}`, '#FF8A94', true)
+      },
+      onSwipe: (q, damage) => {
+        const applied = this.combat.hurtPlayer(damage, 'Матка Улья')
+        if (applied > 0) {
+          const body = this.creature.body as Phaser.Physics.Arcade.Body
+          const sw = QUEEN.attacks.swipe
+          body.velocity.x = (Math.sign(this.creature.x - q.x) || 1) * sw.knockbackX
+          body.velocity.y = sw.knockbackUp
+          this.creature.forceUncling()
+        }
+      },
+      onScream: (q, damage, radius) => {
+        const sc = QUEEN.attacks.scream
+        this.cameras.main.shake(sc.shakeMs, sc.shakePx / DESIGN_W)
+        this.eco.ring(q.x, q.y, '#E23A4E', 0.9)
+        this.audio.play('eliteRoar', 0.7)
+        const d = Phaser.Math.Distance.Between(q.x, q.y, this.creature.x, this.creature.y)
+        if (d < radius) {
+          const applied = this.combat.hurtPlayer(damage, 'крик Матки')
+          if (applied > 0) {
+            const body = this.creature.body as Phaser.Physics.Arcade.Body
+            const ang = Math.atan2(this.creature.y - q.y, this.creature.x - q.x)
+            body.velocity.x = Math.cos(ang) * sc.knockback
+            body.velocity.y = Math.sin(ang) * sc.knockback - 120
+            this.creature.forceUncling()
+          }
+        }
+      },
+      onSpit: (q, tx, ty) => this.spores.fireFrom(q, tx, ty),
+      onBrood: (q, phase) => {
+        const brood = QUEEN.phases.brood
+        const pool = brood.byPhase[phase - 1] ?? brood.byPhase[0]
+        for (let i = 0; i < brood.count; i++) {
+          const id = pool[i % pool.length]
+          const bx = q.x + Phaser.Math.Between(-70, 70)
+          this.addEnemyAt(id, bx, q.y - 46, -1, false)
+        }
+        this.eco.ring(q.x, q.y, '#E23A4E', 0.5)
+      },
+      onVictory: (q, killer) => this.handleQueenVictory(q, killer),
+    }
+  }
+
+  /**
+   * ПОБЕДА: Матка пала — ты пожираешь её и становишься новой Маткой.
+   * Джекпот Эссенции, постоянный ген «Сердце Матки», ТРОН (Код Матки
+   * для PvP-вызовов) и врата «эпохи твоей Матки» (глубина бесконечна).
+   */
+  private handleQueenVictory(q: Queen, killer: KillerKind): void {
+    this.hideBossBar()
+    if (killer === 'player') recordBestiary('queen', false)
+
+    const v = QUEEN.victory
+    this.hitStop.freeze(v.slowMoMs)
+    this.vfx.uniqueKillSlowMo()
+    this.cameras.main.shake(420, 0.014)
+    this.cameras.main.flash(520, 226, 58, 78)
+    this.blood.explode(q.x, q.y, 90)
+    this.blood.spawnClots(q.x, q.y, 10)
+    this.blood.decal(q.x, q.y + 16, 3.6)
+    this.vfx.sparks(q.x, q.y, 26, true)
+    this.audio.play('eliteRoar')
+    this.audio.play('levelup', 0.8)
+    q.collapseVisual(v.collapseMs)
+    this.time.delayedCall(v.collapseMs + 400, () => q.destroy())
+
+    // Джекпот Эссенции: × цикл + бонус за Узурпатора (его мощь).
+    let jackpot = v.essence * this.queenCycle()
+    if (q.challenger) {
+      jackpot += Math.round((q.challenger.power / 100) * QUEEN.reign.challengerEssencePer100Power)
+    }
+    this.addEssence(jackpot, q.x, q.y - 30)
+    this.blood.number(q.x, q.y - 44, `+${jackpot}◈`, '#E8A34F', true)
+
+    // Постоянный ген «Сердце Матки» — переживает смерть, как ты — её.
+    const geneDef = GENES.genes.find((g) => g.id === QUEEN.victory.geneId)
+    if (geneDef && !this.geneSave.genes.includes(geneDef.id)) {
+      this.grantGeneAt(geneDef, q.x, q.y - 20)
+    }
+
+    // ТРОН: счётчики + (первая победа) имя и Код Матки.
+    const depthM = Math.max(0, Math.floor(this.cave.depthOffsetMeters + q.y * GEN.map.metersPerPixel))
+    const wasChallenger = !!q.challenger
+    this.nestProfile = updateNestSave((s) => {
+      s.stats.queensSlain++
+      if (wasChallenger) s.stats.challengersBeaten++
+      if (!s.reign) {
+        s.reign = makeReign(s, depthM, Phaser.Math.Between(0, reignNameCount() - 1))
+      }
+    })
+    if (wasChallenger) clearPendingChallenger()
+    this.goalHintStr = this.computeGoalHint()
+
+    // Врата «эпохи твоей Матки» + оверлей победы с Кодом.
+    this.time.delayedCall(QUEEN.lair.gateAfterVictoryMs, () => {
+      if (this.exiting || this.dying) return
+      this.buildExitGate(true)
+    })
+    this.time.delayedCall(v.overlayAfterMs, () => this.showVictoryOverlay())
+  }
+
+  /** Оверлей победы: имя Матки, мощь, КОД (PvP-ссылка) и выбор дальше. */
+  private showVictoryOverlay(): void {
+    if (this.dying) return
+    const width = DESIGN_W
+    const height = DESIGN_H
+    const cam = this.cameras.main
+    const kb = this.input.keyboard!
+
+    const overlay = this.add.container(0, 0).setScrollFactor(0).setDepth(41).setAlpha(0)
+    uiAttach(this, overlay)
+    const veil = this.add.rectangle(width / 2, height / 2, width, height, 0x0b0b10, 0.8)
+    const title = this.add.text(width / 2, height / 2 - 152, 'ТЫ — НОВАЯ МАТКА УЛЬЯ', {
+      fontFamily: 'Georgia, "Times New Roman", serif',
+      fontSize: '36px',
+      color: '#E8A34F',
+      fontStyle: 'bold',
+    }).setOrigin(0.5)
+
+    const reign = this.nestProfile.reign
+    const lines: string[] = ['Гнездовье пало. Улей принял твою плоть.']
+    if (reign) {
+      lines.push(`имя: ${reign.name} · мощь билда: ${reign.power}`)
+      lines.push(`код Матки: ${reign.code}`)
+    }
+    lines.push('', 'Поделись ссылкой — и Маткой в пещере друга станешь ТЫ.', '')
+    const stats = this.add.text(width / 2, height / 2 - 62, lines.join('\n'), {
+      fontFamily: 'monospace',
+      fontSize: '15px',
+      color: '#E8E6E3',
+      align: 'center',
+      lineSpacing: 8,
+    }).setOrigin(0.5)
+
+    overlay.add([veil, title, stats])
+
+    // Кнопка «СКОПИРОВАТЬ ССЫЛКУ-ВЫЗОВ» (clipboard — по клику, это жест).
+    const url = reign ? challengerShareUrl(reign.code) : null
+    let copiedLabel: Phaser.GameObjects.Text | null = null
+    if (url) {
+      const btn = this.add.text(width / 2, height / 2 + 34, '[ СКОПИРОВАТЬ ССЫЛКУ-ВЫЗОВ ]', {
+        fontFamily: 'monospace',
+        fontSize: '14px',
+        color: '#58E6C8',
+        backgroundColor: '#141420',
+        padding: { x: 10, y: 6 },
+      }).setOrigin(0.5)
+      btn.setInteractive({ useHandCursor: true })
+      btn.on(Phaser.Input.Events.POINTER_DOWN, () => {
+        const done = (): void => {
+          btn.setText('[ ССЫЛКА СКОПИРОВАНА ✓ ]')
+          if (!copiedLabel) {
+            copiedLabel = this.add.text(width / 2, height / 2 + 62, url, {
+              fontFamily: 'monospace',
+              fontSize: '9px',
+              color: '#8A8894',
+              wordWrap: { width: width - 60 },
+            }).setOrigin(0.5)
+            overlay.add(copiedLabel)
+          }
+        }
+        void navigator.clipboard?.writeText(url).then(done).catch(done)
+      })
+      overlay.add(btn)
+    }
+
+    const deeper = this.add.text(width / 2 - 130, height / 2 + 116, '▼ ГЛУБЖЕ\n(ПРОБЕЛ / клик слева)', {
+      fontFamily: 'monospace',
+      fontSize: '13px',
+      color: '#58E6C8',
+      align: 'center',
+    }).setOrigin(0.5)
+    const nest = this.add.text(width / 2 + 130, height / 2 + 116, 'В ГНЕЗДО\n(ENTER / клик справа)', {
+      fontFamily: 'monospace',
+      fontSize: '13px',
+      color: '#E8A34F',
+      align: 'center',
+    }).setOrigin(0.5)
+    overlay.add([deeper, nest])
+    this.tweens.add({ targets: overlay, alpha: 1, duration: 500 })
+
+    let chosen = false
+    const goDeeper = (): void => {
+      if (chosen) return
+      chosen = true
+      overlay.destroy()
+      this.descend()
+    }
+    const toNest = (): void => {
+      if (chosen) return
+      chosen = true
+      kb.removeAllListeners('keydown-SPACE')
+      kb.removeAllListeners('keydown-ENTER')
+      cam.fadeOut(320, 4, 4, 8)
+      cam.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+        overlay.destroy()
+        this.scene.start('Nest')
+      })
+    }
+    kb.once('keydown-SPACE', goDeeper)
+    kb.once('keydown-ENTER', toNest)
+    this.input.once(Phaser.Input.Events.POINTER_DOWN, (p: Phaser.Input.Pointer) => {
+      if (p.worldX < this.cameras.main.scrollX + this.cameras.main.width / 2 / this.cameras.main.zoom) goDeeper()
+      else toNest()
+    })
+  }
+
+  // ── Босс-бар (uiRoot, дизайн-координаты) ─────────────────────────────────
+
+  private spawnBossBar(title: string): void {
+    if (this.bossBar) return
+    const w = 420
+    const bar = this.add.container(DESIGN_W / 2, 30).setScrollFactor(0).setDepth(23)
+    uiAttach(this, bar)
+    const label = this.add.text(0, -10, title.toUpperCase(), {
+      fontFamily: 'Georgia, "Times New Roman", serif',
+      fontSize: '13px',
+      color: '#E23A4E',
+      fontStyle: 'bold',
+    }).setOrigin(0.5)
+    const back = this.add.rectangle(0, 8, w, 8, 0x17171f)
+      .setStrokeStyle(1, 0x2a2a3a)
+      .setOrigin(0.5)
+    this.bossBarFill = this.add.rectangle(-w / 2 + 1, 8, w - 2, 6, 0xe23a4e).setOrigin(0, 0.5)
+    bar.add([label, back, this.bossBarFill])
+    this.bossBar = bar
+  }
+
+  private updateBossBar(): void {
+    const q = this.queen
+    if (!this.bossBar || !this.bossBarFill || !q) return
+    if (q.dead) {
+      this.hideBossBar()
+      return
+    }
+    const ratio = Phaser.Math.Clamp(q.hp / q.maxHp, 0, 1)
+    this.bossBarFill.width = Math.max(0, (420 - 2) * ratio)
+  }
+
+  private hideBossBar(): void {
+    this.bossBar?.destroy()
+    this.bossBar = null
+    this.bossBarFill = null
+  }
+
+  // ── Шаг 26: баннер экспедиции ────────────────────────────────────────────
+
+  private showExpeditionBanner(text: string): void {
+    this.expBanner?.destroy()
+    this.expBanner = null
+    const t = this.add.text(DESIGN_W / 2, 64, `⚠ ${text}`, {
+      fontFamily: 'monospace',
+      fontSize: '14px',
+      color: '#E8A34F',
+      fontStyle: 'bold',
+    })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(23)
+      .setAlpha(0)
+    uiAttach(this, t)
+    this.expBanner = t
+    this.tweens.add({
+      targets: t,
+      alpha: { from: 0, to: 1 },
+      duration: 260,
+      yoyo: true,
+      hold: EXPEDITION.rewards.bannerMs,
+      onComplete: () => {
+        t.destroy()
+        if (this.expBanner === t) this.expBanner = null
+      },
+    })
+  }
+
+  /** Врата вглубь: пульсирующее цианное свечение в выходной камере.
+   *  Шаг 25: era — врата «эпохи твоей Матки» (открываются после победы
+   *  над Маткой на слое-финале; текст подписи другой). */
+  private buildExitGate(era = false): void {
     const tile = this.cave.tile
     const x = this.cave.exit.x * tile + tile / 2
     const y = this.cave.exit.y * tile + tile / 2
@@ -1796,7 +2287,7 @@ export class CaveScene extends Phaser.Scene {
       ease: 'Sine.InOut',
     })
 
-    this.add.text(x, y - 34, '▼ глубже', {
+    this.add.text(x, y - 34, era ? QUEEN.lair.gateLabel : '▼ глубже', {
       fontFamily: 'monospace',
       fontSize: '11px',
       color: '#58E6C8',

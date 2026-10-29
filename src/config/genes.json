@@ -63,6 +63,14 @@
       "weight": 6,
       "desc": "+1 слот забеговой мутации навсегда",
       "effect": { "type": "socket" }
+    },
+    {
+      "id": "gene-queen-heart",
+      "name": "Сердце Матки",
+      "rarity": "legendary",
+      "weight": 0,
+      "desc": "+25 к максимуму HP навсегда. Достаётся только за победу над Маткой Улья",
+      "effect": { "type": "maxHp", "bonus": 25 }
     }
   ]
 }

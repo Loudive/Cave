@@ -16,8 +16,11 @@
     "fire": "Огненный след жжёт игрока и мобов (кроме immune); урон тикает по tickMs пока цель в луже; свет лужи — динамическая дыра в маске тьмы.",
     "gib": "Шаг 13 (Dead Cells): разрыв тел. Если убойный урон ≥ overkillShare·maxHp жертвы — туша НЕ остаётся: жертву РАЗРЫВАЕТ (мясные куски + двойной взрыв крови + большая декаль + съедобные сгустки clotsPerGib). На высоких уровнях роста каждый укус рвёт мясо — фонтан guts.",
     "depthScale": "Шаг 24: ГЛУБИННОЕ УСИЛЕНИЕ — «чем ниже мобы, тем сильнее». При спавне моб получает множители по полосе биома (bandHp/bandDmg/bandSpeed — живучесть/урон/скорость; индексы 0..5 = полосы gen.json biomeBands) и прибавку Эссенции bandEssence. Полоса ≥ glowFromBand — на мобе тлеет багровое глубинное сияние (читаемая угроза издали). Сильный удар (balance.json heavy.armorPierce) — ответ игрока брони глубины.",
-    "stalker": "Шаг 24: Глубинный сталкер — ХИЩНИК «как герой-монстр»: сухопутная молния, охотится стаями на слизней/нетопырей/кровососов И на игрока (detectRadius 250 — видит твой свет издалека). Быстрая погоня (215) и рывковый выпад; умный — при малом HP уходит и возвращается. Спрайт — нейро-генерация (scripts/gen-step24.mjs).",
-    "devourer": "Шаг 24: Пожиратель глубин — АПЕКС-хищник глубины: исполинская пасть (половина тела), толстая шкура, НЕ бегает никогда (flee: null) — бьётся до конца. Медленный, но выпад — как поезд: урон 24, стан-тяжесть. Съедает туши на месте и РАСТЁТ. Цель для сильного удара и пике — обычным укусом брать долго."
+    "stalker": "Шаг 24: Глубинный сталкер — ХИЩНИК «как герой-монстр»: сухопутная молния, охотится стаями на слизней/нетопырей/кровососов И на игрока (detectRadius 250 — видит твой свет издалека). Быстрая погоня (215) и рывковый выпад; умный — при малом HP уходит и возвращается. Спрайт — нейро-генерация (scripts/gen-step24.mjs). Шаг 26: люди — тоже добыча (экспедиции с поверхности).",
+    "devourer": "Шаг 24: Пожиратель глубин — АПЕКС-хищник глубины: исполинская пасть (половина тела), толстая шкура, НЕ бегает никогда (flee: null) — бьётся до конца. Медленный, но выпад — как поезд: урон 24, стан-тяжесть. Съедает туши на месте и РАСТЁТ. Цель для сильного удара и пике — обычным укусом брать долго. Шаг 26: не брезгует людьми.",
+    "queen": "Шаг 25: МАТКА УЛЬЯ — финальная цель игры. НЕ участвует в экосистеме (не в спавн-таблицах): живёт в Гнездовье на каждом N-м слое глубины (queen.json lair.everyNDepths). Босс-логика — entities/Queen.ts (3 фазы: размах/выводок → +крик → +кислотный плевок; attack 'shoot' здесь = параметры плевка, летит через Spores). hp — БАЗА до глубинного множителя полосы (band 5 ×2.5 ≈ 600); NG+ циклы множат ещё (queen.json stats.ngPlusHpMult). Туши не оставляет — победа = спец-последовательность.",
+    "scientist": "Шаг 26: Учёный экспедиции — ЧЕЛОВЕК с поверхности (заказ игрока: «учёные убегают»). Роль prey: светит фонарём (тёплое пятно — expedition.json light), при виде существа/хищника ПАНИКУЕТ и бежит (прочь от угрозы, после испуга — к выходу слоя: уходит на поверхность с образцами). Несёт Эссенцию-«образцы» (expedition.json rewards.sampleEssence). Спрайт — нейро-генерация gen-step25.mjs.",
+    "marine": "Шаг 26: Конвоир экспедиции — ЧЕЛОВЕК с поверхности (заказ игрока: «военные стреляют»). Роль hunter + атака shoot: прицельный телеграф → очередь трассеров (systems/Bullets.ts, без гравитации), керит задом (retreatRange), броня физ 0.5. Воюет и с пещерными хищниками (hunts) — война трёх сторон: пули бьют всё живое, кроме своего отряда."
   },
   "gib": {
     "overkillShare": 0.75,
@@ -481,7 +484,8 @@
       "role": "hunter",
       "hunts": [
         "slug",
-        "bat"
+        "bat",
+        "scientist"
       ],
       "fears": [
         "lava"
@@ -628,7 +632,8 @@
       "hunts": [
         "slug",
         "bat",
-        "bloodsucker"
+        "bloodsucker",
+        "scientist"
       ],
       "fears": [],
       "hp": 34,
@@ -706,7 +711,9 @@
       "hunts": [
         "slug",
         "bat",
-        "bloodsucker"
+        "bloodsucker",
+        "scientist",
+        "marine"
       ],
       "fears": [
         "devourer"
@@ -787,7 +794,9 @@
         "bat",
         "bloodsucker",
         "shell",
-        "stalker"
+        "stalker",
+        "scientist",
+        "marine"
       ],
       "fears": [],
       "hp": 130,
@@ -851,6 +860,185 @@
       "anim": {
         "_doc": "Шаг 20: анимация вида — 4 кадра 68×46 (scripts/process-mobs.mjs), walk-цикл. fps — темп ходьбы/полёта; deadFrame — кадр позы туши (Eating carcass). Стиль секции — простые листья (enemies.ts кастует напрямую, без unwrapDoc).",
         "fps": 5,
+        "deadFrame": 3
+      }
+    },
+    "queen": {
+      "name": "Матка Улья",
+      "role": "territorial",
+      "hunts": [],
+      "fears": [],
+      "hp": 240,
+      "size": [
+        58,
+        44
+      ],
+      "texture": "mob-queen",
+      "meat": 400,
+      "xp": 400,
+      "detectRadius": 300,
+      "knockbackResist": 1,
+      "twinAlpha": 0.7,
+      "armor": {
+        "physical": 0.45,
+        "acid": 0,
+        "fire": 0.3
+      },
+      "noiseColor": "#E23A4E",
+      "patrol": null,
+      "pursue": null,
+      "flee": null,
+      "counter": null,
+      "attack": {
+        "type": "shoot",
+        "windupMs": 600,
+        "shots": 5,
+        "spreadDeg": 34,
+        "shotSpeed": 210,
+        "projGravity": 70,
+        "shotRange": 420,
+        "retreatRange": 999,
+        "damage": 7,
+        "damageType": "acid",
+        "cooldownMs": 2600
+      },
+      "curl": null,
+      "scavenge": null,
+      "fly": null,
+      "_flavor": "Мать всего выводка пещер. Корона костяных наростов, брюхо-инкубатор, гроздь алых глаз. Она не охотится — её дети приносят ей пищу. Теперь — тебе.",
+      "essence": 0,
+      "anim": {
+        "_doc": "Шаг 20: анимация вида — 4 кадра 68×46 (scripts/process-mobs.mjs), walk-цикл. fps — темп ходьбы/полёта; deadFrame — кадр позы туши (Eating carcass). Стиль секции — простые листья (enemies.ts кастует напрямую, без unwrapDoc).",
+        "fps": 4,
+        "deadFrame": 3
+      }
+    },
+    "scientist": {
+      "name": "Учёный экспедиции",
+      "role": "prey",
+      "hunts": [],
+      "fears": [
+        "stalker",
+        "devourer",
+        "lava",
+        "bloodsucker"
+      ],
+      "hp": 22,
+      "size": [
+        14,
+        26
+      ],
+      "texture": "mob-scientist",
+      "meat": 60,
+      "xp": 55,
+      "detectRadius": 210,
+      "knockbackResist": 0.1,
+      "twinAlpha": 0.55,
+      "armor": {
+        "physical": 0.15,
+        "acid": 0,
+        "fire": 0
+      },
+      "noiseColor": "#E8A34F",
+      "patrol": {
+        "speed": 66,
+        "pauseMs": [
+          800,
+          2000
+        ],
+        "moveMs": [
+          900,
+          2200
+        ],
+        "hopEveryMs": 0,
+        "leashRadius": 2000
+      },
+      "pursue": null,
+      "flee": {
+        "speed": 185,
+        "hopChance": 0.3,
+        "hopVelocityY": -220
+      },
+      "counter": null,
+      "attack": null,
+      "curl": null,
+      "scavenge": null,
+      "fly": null,
+      "_flavor": "Оранжевый шлем с фонарём, костюм химзащиты, чемоданчик с образцами. Светит во тьме — и видит то, что светится. Существо в его глазах — не монстр, а публикация.",
+      "essence": 10,
+      "anim": {
+        "_doc": "Шаг 20: анимация вида — 4 кадра 68×46 (scripts/process-mobs.mjs), walk-цикл. fps — темп ходьбы/полёта; deadFrame — кадр позы туши (Eating carcass). Стиль секции — простые листья (enemies.ts кастует напрямую, без unwrapDoc).",
+        "fps": 10,
+        "deadFrame": 3
+      }
+    },
+    "marine": {
+      "name": "Конвоир экспедиции",
+      "role": "hunter",
+      "hunts": [
+        "stalker",
+        "bloodsucker",
+        "lava",
+        "devourer"
+      ],
+      "fears": [],
+      "hp": 46,
+      "size": [
+        16,
+        28
+      ],
+      "texture": "mob-marine",
+      "meat": 50,
+      "xp": 70,
+      "detectRadius": 250,
+      "knockbackResist": 0.35,
+      "twinAlpha": 0.6,
+      "armor": {
+        "physical": 0.5,
+        "acid": 0.15,
+        "fire": 0.2
+      },
+      "noiseColor": "#E8A34F",
+      "patrol": {
+        "speed": 60,
+        "pauseMs": [
+          600,
+          1600
+        ],
+        "moveMs": [
+          800,
+          2000
+        ],
+        "hopEveryMs": 0,
+        "leashRadius": 2000
+      },
+      "pursue": {
+        "speed": 120,
+        "giveUpRange": 420
+      },
+      "flee": null,
+      "counter": null,
+      "attack": {
+        "type": "shoot",
+        "windupMs": 340,
+        "shots": 3,
+        "spreadDeg": 10,
+        "shotSpeed": 430,
+        "projGravity": 0,
+        "shotRange": 340,
+        "retreatRange": 150,
+        "damage": 7,
+        "damageType": "physical",
+        "cooldownMs": 1600
+      },
+      "curl": null,
+      "scavenge": null,
+      "fly": null,
+      "_flavor": "Тяжёлый шлем с тактическим фонарём, карабин с подствольной лампой. Пришёл охранять науку. Пещерная фауна в его уставе проходит как «враждебная биомасса».",
+      "essence": 12,
+      "anim": {
+        "_doc": "Шаг 20: анимация вида — 4 кадра 68×46 (scripts/process-mobs.mjs), walk-цикл. fps — темп ходьбы/полёта; deadFrame — кадр позы туши (Eating carcass). Стиль секции — простые листья (enemies.ts кастует напрямую, без unwrapDoc).",
+        "fps": 10,
         "deadFrame": 3
       }
     }
