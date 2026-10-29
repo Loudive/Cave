@@ -63,7 +63,7 @@ const SPECIES = {
   },
   bat: {
     master: '2D game character sprite: lean small cave bat hunter, agile flier; angular blade-like wings held half-spread, sharp angular silhouette that reads DANGEROUS; near-black membranes and fur #0B0B10 with a faint violet sheen, desaturated teal wing-membrane glow #58E6C8, tiny glowing red eyes #E23A4E, jagged fangs, thin tail membrane, small clawed feet tucked in flight. Feral, NOT cute. ' + STYLE,
-    sheet: 'wing flap flight cycle: frame1 wings raised high; frame2 mid-downstroke; frame3 wings fully down, body lifted; frame4 mid-upstroke returning. ',
+    sheet: 'steady level-flight wingbeat cycle, the bat glides horizontally with wings held OUT TO THE SIDES (wide horizontal silhouette, NOT tall): frame1 wings level with the body; frame2 wings tilt slightly upward; frame3 gentle downstroke, wings dip below the body; frame4 wings return to level. The body and head stay at the SAME height and size in ALL frames — only the wing membranes move. ',
   },
   reaper: {
     master: '2D game character sprite: gaunt fungal reaper, a thin mushroom-folk wrapped in a tattered spore mantle; hunched rounded body but angular blade-like fringe of gill-blades along the mantle; pale gray-violet flesh #1a1a26, dim purple bioluminescent gill glow #B36BFF seeping from under the mantle rim, small hollow dark eyes, thin long arms with clawed fingers, a few drifting spore motes around it. ' + STYLE,
@@ -154,7 +154,7 @@ async function submit(prompt, refUrl, aspect) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 /** Одна заявка: reconcile → submit (с ретраями 409) → поллинг → download. */
-async function runJob(label, prompt, refFile, aspect, outFile) {
+async function runJob(label, prompt, refFile, aspect, outFile, anchor) {
   if (existsSync(outFile)) {
     console.log(`✓ ${label} уже скачан — пропуск`)
     return true
@@ -163,7 +163,12 @@ async function runJob(label, prompt, refFile, aspect, outFile) {
   // reconcile: промпт-префикс + МОДЕЛЬ (промпты видов одинаковы для обеих
   // моделей — без проверки modelName прогон gpt-image-2-5 подхватил бы
   // готовый результат nana-pro, что и случилось на бете скрипта).
-  const isMine = (j) => (j.prompt || '').startsWith(prompt.slice(0, 90))
+  // ГРАБЛЯ шага 21 (вторая версия): префикс 300 перестал доставать до
+  // видового текста после удлинения общей шапки («WIDE magenta gaps…») —
+  // bat-лист «подхватил» ЧУЖОЙ SUCCESS-job (reaper). Лечение: ЯВНЫЙ
+  // видовой якорь (первые 80 символов master/sheet-текста вида) через
+  // includes — не зависит от длины шапки вообще.
+  const isMine = (j) => (j.prompt || '').includes(anchor)
     && (j.modelName || '').includes(MODEL === 'gpt-image-2-5' ? 'GPT Image' : 'Nano Banana')
   let jobs = await listJobs()
   let mine = jobs.find(isMine)
@@ -228,6 +233,7 @@ async function main() {
         HERO_MASTER,
         '1:1',
         join(dir, `${id}-master.jpg`),
+        sp.master.slice(0, 80),
       )
       if (!ok) failed++
     }
@@ -242,8 +248,8 @@ async function main() {
         failed++
         continue
       }
-      const prompt = `2D game sprite sheet: EXACTLY 4 frames of the same creature from the reference image, arranged in ONE horizontal row (a 2x2 grid is also acceptable), side view facing right. Keep the EXACT same creature design as the reference image — same species, same palette, same pixel-art style. ${sp.sheet}All 4 creatures IDENTICAL in size and proportions, evenly spaced, standing on the SAME ground baseline. Dark fantasy cave creature, bioluminescent. Crisp pixel art style, clean readable silhouettes, game asset. Flat solid magenta background #FF00FF everywhere. No text, no grid, no frame numbers, no watermark, no border.`
-      const ok = await runJob(`${id}-sheet`, prompt, masterFile, '16:9', join(dir, `${id}-sheet.jpg`))
+      const prompt = `2D game sprite sheet: EXACTLY 4 frames of the same creature from the reference image, arranged in ONE horizontal row with WIDE magenta gaps between the frames (frames must NOT touch or overlap each other), side view facing right. Keep the EXACT same creature design as the reference image — same species, same palette, same pixel-art style. ${sp.sheet}All 4 creatures IDENTICAL in size and proportions, evenly spaced, standing on the SAME ground baseline. Dark fantasy cave creature, bioluminescent. Crisp pixel art style, clean readable silhouettes, game asset. Flat solid magenta background #FF00FF everywhere. No text, no grid, no frame numbers, no watermark, no border.`
+      const ok = await runJob(`${id}-sheet`, prompt, masterFile, '16:9', join(dir, `${id}-sheet.jpg`), sp.sheet.slice(0, 80))
       if (!ok) failed++
     }
   }

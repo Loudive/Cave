@@ -20,7 +20,16 @@
     "metersPerPixel": 0.5,
     "revealTiles": 8,
     "bigMapHoldMs": 260,
-    "bigMapScale": 4.6
+    "bigMapScale": 4.6,
+    "miniMargin": 8,
+    "miniTileScale": 2,
+    "miniFogColor": 1513254,
+    "miniFogAlpha": 0.92,
+    "miniFrameColor": 3947082,
+    "miniFrameAlpha": 0.85,
+    "miniFramePad": 5,
+    "miniBackingAlpha": 0.55,
+    "miniLabelAlpha": 0.6
   },
   "caverns": {
     "hubRxMin": 22,

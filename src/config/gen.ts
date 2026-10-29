@@ -38,6 +38,25 @@ export interface GenConfig {
     bigMapHoldMs: number
     /** Шаг 13: множитель увеличения полной карты. */
     bigMapScale: number
+    /** Шаг 21: отступ мини-карты от угла экрана (px). */
+    miniMargin: number
+    /** Шаг 21: пикселей на тайл на мини-карте. */
+    miniTileScale: number
+    /** Шаг 21: цвет тумана войны мини-карты (тёмно-синий: читается как
+     *  «карта», а не сплошная дыра — жалоба «неизвестные тёмные фигуры»). */
+    miniFogColor: number
+    /** Шаг 21: альфа заливки тумана войны. */
+    miniFogAlpha: number
+    /** Шаг 21: цвет рамки мини-карты. */
+    miniFrameColor: number
+    /** Шаг 21: альфа линии рамки. */
+    miniFrameAlpha: number
+    /** Шаг 21: внутренний отступ рамки от карты (px). */
+    miniFramePad: number
+    /** Шаг 21: альфа подложки под картой. */
+    miniBackingAlpha: number
+    /** Шаг 21: альфа подписи «M — карта». */
+    miniLabelAlpha: number
   }
   /** Шаг 14: большие органичные каверны (референсы Hollow Knight/Blasphemous). */
   caverns: {

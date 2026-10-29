@@ -21,7 +21,6 @@ const COL = {
   ground: 0x3c3a4a,
   entrance: 0xe8e6e3,
   exit: 0x58e6c8,
-  fog: 0x0b0b10,
   you: 0xffffff,
 }
 
@@ -39,6 +38,8 @@ function revealDisc(radius: number): { dx: number; dy: number }[] {
 
 export class MiniMap {
   private readonly rt: Phaser.GameObjects.RenderTexture
+  private readonly frame: Phaser.GameObjects.Rectangle
+  private readonly label: Phaser.GameObjects.Text
   private readonly dot: Phaser.GameObjects.Rectangle
   private readonly left: number
   private readonly top: number
@@ -64,11 +65,15 @@ export class MiniMap {
     private cave: CaveData,
   ) {
     const { width, height } = scene.scale
-    this.tileScale = 2
+    const M = GEN.map
+    this.tileScale = M.miniTileScale
+    const margin = M.miniMargin
+    const mapW = cave.cols * this.tileScale
+    const mapH = cave.rows * this.tileScale
 
     this.rt = scene.add.renderTexture(0, 0, cave.cols, cave.rows)
       .setOrigin(1, 1)
-      .setPosition(width - 8, height - 8)
+      .setPosition(width - margin, height - margin)
       .setScale(this.tileScale)
       .setScrollFactor(0)
       .setDepth(30)
@@ -76,13 +81,42 @@ export class MiniMap {
     // Шаг 20: мини-карта — экранным слоем (не зумится с камерой).
     uiAttach(scene, this.rt)
 
-    this.left = width - 8 - cave.cols * this.tileScale
-    this.top = height - 8 - cave.rows * this.tileScale
+    // Шаг 21: рамка-панель + подпись — ЖАЛОБА «неизвестные тёмные фигуры»:
+    // RAW RenderTexture 370×232 с заливкой тумана читалась как тёмный
+    // прямоугольник-артефакт. Панель (подложка + обводка + подпись «M —
+    // карта» в стиле подсказки внизу экрана) делает её узнаваемой как UI;
+    // туман перекрашен в тёмно-синий (miniFogColor) — «бумага карты в
+    // темноте», а не дыра. Все параметры — gen.json map.mini*.
+    this.frame = scene.add.rectangle(
+      width - margin - mapW / 2,
+      height - margin - mapH / 2,
+      mapW + M.miniFramePad * 2,
+      mapH + M.miniFramePad * 2,
+      0x0b0b10,
+      M.miniBackingAlpha,
+    )
+      .setStrokeStyle(1, M.miniFrameColor, M.miniFrameAlpha)
+      .setScrollFactor(0)
+      .setDepth(29)
+    uiAttach(scene, this.frame)
+    this.label = scene.add.text(width - margin, height - margin - mapH - M.miniFramePad * 2, 'M — карта', {
+      fontFamily: 'monospace',
+      fontSize: '9px',
+      color: '#8A8894',
+    })
+      .setOrigin(1, 1)
+      .setAlpha(M.miniLabelAlpha)
+      .setScrollFactor(0)
+      .setDepth(31)
+    uiAttach(scene, this.label)
 
-    // Туман войны: до исследования карта — чистая тьма.
+    this.left = width - margin - cave.cols * this.tileScale
+    this.top = height - margin - cave.rows * this.tileScale
+
+    // Туман войны: до исследования карта — тёмная «бумага» (не дыра).
     this.explored = new Uint8Array(cave.cols * cave.rows)
     this.revealCells = revealDisc(GEN.map.revealTiles)
-    this.rt.fill(COL.fog, 0.92)
+    this.rt.fill(M.miniFogColor, M.miniFogAlpha)
 
     // Точка существа (малая карта).
     this.dot = scene.add.rectangle(0, 0, 4, 4, COL.you, 0.95)
@@ -160,6 +194,8 @@ export class MiniMap {
     this.visible = v
     this.rt.setVisible(v)
     this.dot.setVisible(v)
+    this.frame.setVisible(v)
+    this.label.setVisible(v)
   }
 
   /** Открыть тайл на карте (цвет по типу клетки + маяки, если нашлись). */
