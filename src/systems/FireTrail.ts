@@ -3,6 +3,7 @@ import { ENEMIES } from '../config/enemies'
 import { QUALITY } from './quality'
 import type { CaveData } from '../gen/cave'
 import type { DarknessMask, LightSource } from './DarknessMask'
+import { LIGHT } from '../config/light'
 import type { Enemy } from '../entities/Enemy'
 
 /**
@@ -27,7 +28,8 @@ interface FirePatch {
   alive: boolean
 }
 
-const DEPTH_FIRE = 2
+// Шаг 18: пламя/гало перенесены НАД маску тьмы (LIGHT.halo.depth) —
+// константа DEPTH_FIRE больше не нужна.
 
 export interface FireHooks {
   onBurnPlayer: (amount: number) => void
@@ -61,8 +63,10 @@ export class FireTrail {
         this.extinguish(oldest, false)
         p = oldest
       } else {
+        // Шаг 18: пламя и его гало — НАД маской тьмы (полная тьма не
+        // съедает огонь: угроза/еда читается издали, гайд §7).
         const img = this.scene.add.image(x, floorY, 'fire-patch')
-          .setDepth(DEPTH_FIRE)
+          .setDepth(LIGHT.halo.depth)
           .setBlendMode(Phaser.BlendModes.ADD)
         p = { img, glow: null, light: null, bornAt: 0, lifeMs: 0, radius: 0, dps: 0, tickMs: 0, lastBurnAt: 0, alive: false }
         this.patches.push(p)
@@ -81,17 +85,17 @@ export class FireTrail {
 
     if (high && !p.glow) {
       p.glow = this.scene.add.image(x, floorY - 4, 'glow-red')
-        .setDepth(DEPTH_FIRE)
+        .setDepth(LIGHT.halo.depth)
         .setBlendMode(Phaser.BlendModes.ADD)
-        .setAlpha(0.3)
+        .setAlpha(LIGHT.halo.fire)
         .setScale(0.5)
     }
     if (p.glow) {
-      p.glow.setPosition(x, floorY - 4).setVisible(true).setAlpha(0.3).setScale(0.5)
+      p.glow.setPosition(x, floorY - 4).setVisible(true).setAlpha(LIGHT.halo.fire).setScale(0.5)
       this.scene.tweens.killTweensOf(p.glow)
       this.scene.tweens.add({
         targets: p.glow,
-        alpha: { from: 0.2, to: 0.42 },
+        alpha: { from: LIGHT.halo.fire * 0.6, to: LIGHT.halo.fire * 1.3 },
         scale: { from: 0.42, to: 0.6 },
         duration: 340,
         yoyo: true,

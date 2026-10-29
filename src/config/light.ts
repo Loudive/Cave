@@ -12,6 +12,9 @@ export interface ParallaxLayer {
   alpha: number
   /** Шаг 12: доля цвета биома в тонировке слоя (0 — нет, 1 — целиком). */
   tintStrength: number
+  /** Шаг 18: альфа ADD-близнеца (эмиссивная выжимка `-em`) НАД маской тьмы;
+   * 0 — у слоя нет эмиссивы (чистая порода), близнец не создаётся. */
+  emissiveAlpha: number
 }
 
 export interface LightConfig {
@@ -19,6 +22,30 @@ export interface LightConfig {
     color: string
     alpha: number
     holeTexture: string
+    /** Шаг 18: кривые выреза тьмы в шейдере — умбра игрока + кольцо. */
+    falloff: {
+      plateauEnd: number
+      plateauLevel: number
+      playerUmbra: number
+      playerRingAt: number
+      playerRingPeak: number
+      playerFalloffPow: number
+    }
+  }
+  /** Шаг 18: эмиссивный слой над маской — гало источников + lumen героя. */
+  halo: {
+    depth: number
+    mushroom: number
+    gate: number
+    flower: number
+    pool: number
+    nest: number
+    fire: number
+    vein: number
+    elite: number
+    lumenDepth: number
+    lumenAlpha: number
+    aura: { alpha: number; scale: number; pulseAmp: number; pulseMs: number }
   }
   playerLight: {
     radius: number

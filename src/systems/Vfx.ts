@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import { QUALITY } from './quality'
+import { LIGHT } from '../config/light'
 import { ChromaticPipeline } from './ChromaticPipeline'
 import type { BloodFx } from './BloodFx'
 import type { HitStop } from './HitStop'
@@ -152,8 +153,13 @@ export class Vfx {
    * чуть крупнее и тусклее, синхронизируется с целью каждый кадр.
    */
   registerGlow(target: Phaser.GameObjects.Image): void {
+    // Шаг 18: если цель живёт НАД маской тьмы, блюм обязан быть тоже над
+    // ней (иначе его съест вуаль полной тьмы) — но чуть ниже самой цели.
+    const bloomDepth = target.depth >= LIGHT.halo.depth
+      ? target.depth - 0.1
+      : target.depth - 1
     const bloom = this.scene.add.image(target.x, target.y, target.texture.key)
-      .setDepth(target.depth - 1)
+      .setDepth(bloomDepth)
       .setBlendMode(Phaser.BlendModes.ADD)
       .setScale(target.scaleX * VFX.bloomScale)
       .setAlpha(0)

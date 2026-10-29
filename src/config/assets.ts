@@ -51,6 +51,11 @@ export const ASSETS: AssetEntry[] = [
   { key: 'bg-midwall', file: 'bg-midwall.png' },
   { key: 'bg-formations', file: 'bg-formations.png' },
   { key: 'silhouette-near', file: 'silhouette-near.png' },
+  // Шаг 18: эмиссивные выжимки (scripts/make-bg-emissive.mjs) — ADD-близнецы
+  // НАД маской тьмы: дальние огни прорезают полную тьму (глубина без дымки).
+  { key: 'bg-void-em', file: 'bg-void-em.png' },
+  { key: 'bg-megavault-em', file: 'bg-megavault-em.png' },
+  { key: 'bg-formations-em', file: 'bg-formations-em.png' },
   { key: 'mote', file: 'mote.png' },
   // Боёвка и поедание (шаг 6): кровь трёх слоёв, добыча, мясо, мутаген.
   { key: 'blood-drop', file: 'blood-drop.png' },

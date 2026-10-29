@@ -40,14 +40,13 @@ export interface LightSource {
   gazeDir?: () => 1 | -1
 }
 
-/** Фрагментный шейдер тьмы: до maxLights источников, форма дыры — как у
- * light-hole.png (плато до 45% радиуса, линейный спад к краю), света
- * перемножаются «прозрачности» — перекрытие светил ярче, как при erase.
- * Шаг 13 (Hidden Deep): свет существа (индекс uGazeIdx) вытягивается
- * ВПЕРЁД по uGazeDir — горизонтальная метрика делится на uGazeStretch,
- * и только в полупространстве «перед мордой». Свет читается как
- * направление атаки хищника, оставаясь биологическим (не фонарь —
- * железное правило проекта). */
+/** Фрагментный шейдер тьмы (шаг 18 — глобальная переработка света):
+ * до maxLights источников, ДВЕ кривые выреза — обычная (короткое плато +
+ * квадратичный спад) и кривая существа (УМБРА в центре + пик-кольцо
+ * ВОКРУГ — свет исходит из биолюм-меток, а не выжигает диск под телом,
+ * референсы: существо = self-emissive источник). Перекрытие светил
+ * перемножает «прозрачности» — как при erase. Взгляд хищника (uGazeIdx/
+ * uGazeDir/uGazeStretch) сохранён — свет вытягивается вперёд по морде. */
 const DARKNESS_FRAG = `
 precision mediump float;
 uniform vec2 resolution;
@@ -58,12 +57,36 @@ uniform float uLightCount;
 uniform float uGazeIdx;
 uniform float uGazeStretch;
 uniform float uGazeDir;
+uniform float uPlateauEnd;
+uniform float uPlateauLevel;
+uniform float uPlayerUmbra;
+uniform float uPlayerRingAt;
+uniform float uPlayerRingPeak;
+uniform float uPlayerFalloffPow;
 
+// Обычный источник: плато plateauLevel до plateauEnd, дальше мягкий
+// квадратичный спад (без жёсткой линейной кромки «фотошоп-градиента»).
 float holeFalloff (float t)
 {
     if (t >= 1.0) { return 0.0; }
-    if (t < 0.45) { return 1.0 - 0.18 * (t / 0.45); }
-    return 0.82 * (1.0 - (t - 0.45) / 0.55);
+    if (t < uPlateauEnd) { return uPlateauLevel; }
+    float k = (t - uPlateauEnd) / (1.0 - uPlateauEnd);
+    return uPlateauLevel * (1.0 - k * k);
+}
+
+// Свет существа: в центре УМБРА (тело не накрыто выжженным диском —
+// тёмный мех читается контуром на кольце света, пол под лапами виден),
+// пик на playerRingAt, спад к краю квадратичный.
+float playerFalloff (float t)
+{
+    if (t >= 1.0) { return 0.0; }
+    if (t < uPlayerRingAt) {
+        float k = t / uPlayerRingAt;
+        float s = k * k * (3.0 - 2.0 * k); // smoothstep — без излома
+        return mix(uPlayerUmbra, uPlayerRingPeak, s);
+    }
+    float k2 = (t - uPlayerRingAt) / (1.0 - uPlayerRingAt);
+    return uPlayerRingPeak * pow(1.0 - k2, uPlayerFalloffPow);
 }
 
 void main ()
@@ -75,12 +98,14 @@ void main ()
         if (float(i) >= uLightCount) { break; }
         vec3 L = uLights[i];
         vec2 d = p - L.xy;
-        if (uGazeIdx >= 0.0 && float(i) == uGazeIdx && d.x * uGazeDir > 0.0)
+        bool isPlayer = (uGazeIdx >= 0.0 && float(i) == uGazeIdx);
+        if (isPlayer && d.x * uGazeDir > 0.0)
         {
             d.x /= uGazeStretch;
         }
         float t = distance(vec2(0.0, 0.0), d) / max(L.z, 1.0);
-        keep *= (1.0 - holeFalloff(t));
+        float f = isPlayer ? playerFalloff(t) : holeFalloff(t);
+        keep *= (1.0 - f);
     }
     gl_FragColor = vec4(uDarkColor, uDarkAlpha * keep);
 }
@@ -115,6 +140,7 @@ export class DarknessMask {
     const isWebGL = scene.game.renderer.type === Phaser.WEBGL
 
     if (isWebGL) {
+      const fo = LIGHT.darkness.falloff
       const base = new Phaser.Display.BaseShader('darkness-mask', DARKNESS_FRAG, undefined, {
         uDarkColor: { type: '3f', value: { x: this.darkR, y: this.darkG, z: this.darkB } },
         uDarkAlpha: { type: '1f', value: dark.alpha },
@@ -123,6 +149,13 @@ export class DarknessMask {
         uGazeIdx: { type: '1f', value: -1 },
         uGazeStretch: { type: '1f', value: LIGHT.gaze.stretch },
         uGazeDir: { type: '1f', value: 1 },
+        // Шаг 18: кривые выреза — обычные источники + умбра/кольцо существа.
+        uPlateauEnd: { type: '1f', value: fo.plateauEnd },
+        uPlateauLevel: { type: '1f', value: fo.plateauLevel },
+        uPlayerUmbra: { type: '1f', value: fo.playerUmbra },
+        uPlayerRingAt: { type: '1f', value: fo.playerRingAt },
+        uPlayerRingPeak: { type: '1f', value: fo.playerRingPeak },
+        uPlayerFalloffPow: { type: '1f', value: fo.playerFalloffPow },
       })
       this.shader = scene.add.shader(base, 0, 0, width, height)
         .setOrigin(0, 0)
@@ -236,20 +269,24 @@ export class DarknessMask {
     }
 
     // ── Canvas-фолбэк: RT, дыры одним батчем ────────────────────────────────
+    // (WebGL-шейдер — целевой путь; тут приближение: дыра существа рисуется
+    // приглушённо — грубый аналог умбры/кольца без кривых.)
     const rt = this.rt!
     const hole = this.hole!
     rt.clear()
     rt.fill(this.colorInt, LIGHT.darkness.alpha)
     if (count === 0) return
     rt.beginDraw()
+    let holeIdx = 0
     for (let i = 0; i < count; i++) {
       const sx = this.lightArr[i * 3]
       const sy = this.lightArr[i * 3 + 1]
       const r = this.lightArr[i * 3 + 2]
       hole.setPosition(sx, sy)
         .setDisplaySize(r * 2, r * 2)
-        .setAlpha(1)
+        .setAlpha(holeIdx === gazeIdx ? LIGHT.darkness.falloff.playerUmbra : 1)
       rt.batchDraw(hole)
+      holeIdx++
     }
     rt.endDraw()
   }

@@ -70,7 +70,10 @@ function randomSeedStr(): string {
 
 export class CaveScene extends Phaser.Scene {
   private creature!: Creature
-  private creatureGlow!: Phaser.GameObjects.Image
+  /** Шаг 18: самосветящиеся биолюм-метки героя — НАД маской тьмы. */
+  private creatureLumen!: Phaser.GameObjects.Sprite
+  /** Шаг 18: едва заметная биолюм-аура вокруг существа — НАД маской тьмы. */
+  private creatureAura!: Phaser.GameObjects.Image
   private debug!: DebugOverlay
   private miniMap!: MiniMap
   private fpsGuard!: FpsGuard
@@ -85,7 +88,12 @@ export class CaveScene extends Phaser.Scene {
   private worldH = 0
   private mask!: DarknessMask
   private motes!: SilhouetteMotes
-  private parallax: { ts: Phaser.GameObjects.TileSprite; factor: number }[] = []
+  private parallax: {
+    ts: Phaser.GameObjects.TileSprite
+    factor: number
+    /** Шаг 18: ADD-близнец эмиссивной выжимки над маской (null — нет эмиссивы). */
+    em: Phaser.GameObjects.TileSprite | null
+  }[] = []
   /** Шаг 12: текущий тон каждого параллакс-слоя (лерп к цвету биома). */
   private parallaxTints: number[] = []
 
@@ -238,16 +246,31 @@ export class CaveScene extends Phaser.Scene {
     this.creature = new Creature(this, spawnX, spawnY, keys)
     this.physics.add.collider(this.creature, layers.solid)
 
-    this.creatureGlow = this.add.image(spawnX, spawnY, 'glow-cyan')
-      .setScale(1.7)
-      .setAlpha(0.5)
+    // Шаг 18 (глобальная переработка света): существо — ИСТОЧНИК света
+    // (референсы self-emissive). Старый creatureGlow — большой ADD-диск
+    // (alpha 0.38-0.6) ПОД телом — «затмевал» монстра (жалоба игрока):
+    // тёмный мех превращался в силуэт-пятно на выжженном циановом фоне.
+    // Теперь: (1) lumen-двойник — только биолюм-метки (hero-*-lumen),
+    // рендерится НАД маской тьмы и светится в полной темноте сам;
+    // (2) едва заметная аура вокруг (не под!) телом — свет «исходит из
+    // существа», а не накрывает его. Кадр/флип/масштаб/поворот копируются
+    // из основного спрайта каждый кадр (update).
+    this.creatureLumen = this.add.sprite(spawnX, spawnY, 'hero-idle-lumen', this.creature.frame.name)
+      .setDepth(LIGHT.halo.lumenDepth)
       .setBlendMode(Phaser.BlendModes.ADD)
-      .setDepth(3)
+      .setAlpha(LIGHT.halo.lumenAlpha)
+    this.creatureAura = this.add.image(spawnX, spawnY, 'glow-cyan')
+      .setScale(LIGHT.halo.aura.scale)
+      .setAlpha(LIGHT.halo.aura.alpha)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setDepth(LIGHT.halo.lumenDepth - 1)
     this.tweens.add({
-      targets: this.creatureGlow,
-      scale: { from: 1.5, to: 1.9 },
-      alpha: { from: 0.38, to: 0.6 },
-      duration: 1600,
+      targets: this.creatureAura,
+      scale: {
+        from: LIGHT.halo.aura.scale * (1 - LIGHT.halo.aura.pulseAmp),
+        to: LIGHT.halo.aura.scale * (1 + LIGHT.halo.aura.pulseAmp),
+      },
+      duration: LIGHT.halo.aura.pulseMs,
       yoyo: true,
       repeat: -1,
       ease: 'Sine.InOut',
@@ -649,7 +672,27 @@ export class CaveScene extends Phaser.Scene {
 
       this.debug.update(this)
       this.fpsGuard.update()
-      this.creatureGlow.setPosition(this.creature.x, this.creature.y)
+      // Шаг 18: синхронизация lumen-двойника (метки героя над маской тьмы)
+      // с основным спрайтом — текстура (hero-X → hero-X-lumen), кадр, флип,
+      // трансформы, видимость. Листы 1:1 по сетке кадров.
+      {
+        const lumen = this.creatureLumen
+        if (lumen) {
+          const texKey = `${this.creature.texture.key}-lumen`
+          lumen.setPosition(this.creature.x, this.creature.y)
+          lumen.setScale(this.creature.scaleX, this.creature.scaleY)
+          lumen.setRotation(this.creature.rotation)
+          lumen.setFlipX(this.creature.flipX)
+          if (lumen.texture.key !== texKey) {
+            lumen.setTexture(texKey, this.creature.frame.name)
+          } else if (lumen.frame.name !== this.creature.frame.name) {
+            lumen.setFrame(this.creature.frame.name)
+          }
+          lumen.setAlpha(LIGHT.halo.lumenAlpha * this.creature.alpha)
+          lumen.setVisible(this.creature.visible)
+          this.creatureAura.setPosition(this.creature.x, this.creature.y)
+        }
+      }
       this.miniMap.update(this.creature.x, this.creature.y, this.cave.tile)
 
       const cam = this.cameras.main
@@ -671,6 +714,10 @@ export class CaveScene extends Phaser.Scene {
       for (const p of this.parallax) {
         p.ts.tilePositionX = cam.scrollX * p.factor
         p.ts.tilePositionY = cam.scrollY * p.factor
+        if (p.em) {
+          p.em.tilePositionX = p.ts.tilePositionX
+          p.em.tilePositionY = p.ts.tilePositionY
+        }
       }
       // Шаг 15: куллинг чанков запечёнки — рисуем только видимые.
       if (this.paint) {
@@ -1004,7 +1051,9 @@ export class CaveScene extends Phaser.Scene {
     this.time.delayedCall(ANIMS.death.hideAfterMs ?? 600, () => {
       this.creature.setVisible(false)
     })
-    this.creatureGlow.setAlpha(0)
+    // Шаг 18: метки и аура гаснут вместе с существом.
+    this.creatureLumen.setAlpha(0)
+    this.creatureAura.setAlpha(0)
     this.blood.decal(this.creature.x, this.creature.y + 8, 2.6)
 
     const kb = this.input.keyboard!
@@ -1358,16 +1407,27 @@ export class CaveScene extends Phaser.Scene {
     this.creature.applyGrowth(v.bodyScale)
   }
 
-  /** Параллакс-силуэты (шаг 5): tileSprite на весь кадр, factor из light.json. */
+  /** Параллакс-силуэты (шаг 5): tileSprite на весь кадр, factor из light.json.
+   * Шаг 18: каждому слою с эмиссивой (emissiveAlpha > 0) ставится
+   * ADD-близнец НАД маской тьмы (bg-X-em — выжимка ярких пикселей):
+   * в полной тьме глубину держат дальние огни, а не серая дымка. */
   private buildParallax(): void {
-    this.parallax = LIGHT.parallax.map((p) => ({
-      ts: this.add.tileSprite(0, 0, this.scale.width, this.scale.height, p.key)
+    this.parallax = LIGHT.parallax.map((p) => {
+      const ts = this.add.tileSprite(0, 0, this.scale.width, this.scale.height, p.key)
         .setOrigin(0, 0)
         .setScrollFactor(0)
         .setDepth(p.depth)
-        .setAlpha(p.alpha),
-      factor: p.factor,
-    }))
+        .setAlpha(p.alpha)
+      const em = p.emissiveAlpha > 0
+        ? this.add.tileSprite(0, 0, this.scale.width, this.scale.height, `${p.key}-em`)
+            .setOrigin(0, 0)
+            .setScrollFactor(0)
+            .setDepth(LIGHT.halo.depth - 0.2)
+            .setBlendMode(Phaser.BlendModes.ADD)
+            .setAlpha(p.emissiveAlpha)
+        : null
+      return { ts, factor: p.factor, em }
+    })
     this.parallaxTints = LIGHT.parallax.map(() => 0xffffff)
   }
 
@@ -1396,12 +1456,14 @@ export class CaveScene extends Phaser.Scene {
         .setScale(0.7 + rng.float() * 1.6)
         .setDepth(0)
       if (rare) {
-        // Жила светится в темноте: слабое биолюм-пятно над плитой.
+        // Жила светится в темноте: слабое биолюм-пятно НАД плитой — шаг 18:
+        // гало перенесено НАД маску тьмы (полная тьма не съедает рудные
+        // огни — они читаются как дальние маячки глубины).
         const glow = this.add.image(wx, wy, band?.glow ?? 'glow-cyan')
-          .setAlpha(0.16)
+          .setAlpha(LIGHT.halo.vein)
           .setScale(0.5)
           .setBlendMode(Phaser.BlendModes.ADD)
-          .setDepth(0)
+          .setDepth(LIGHT.halo.depth)
         this.vfx?.registerGlow(glow)
       } else if (band) {
         // Скала несёт оттенок биома — красные жилы, кислотные гроты, лавы.
@@ -1486,11 +1548,13 @@ export class CaveScene extends Phaser.Scene {
       const y = (m.ty + 1) * tile - 12
 
       const glowTex = band?.glow ?? 'glow-cyan'
+      // Шаг 18: гало гриба НАД маской тьмы — сияние источника не съедается
+      // вуалью: в полной тьме пещеры видны живые огни (еда/путь, гайд §7).
       const glow = this.add.image(x, y - 9, glowTex)
-        .setAlpha(0.3)
+        .setAlpha(LIGHT.halo.mushroom)
         .setScale(0.75)
         .setBlendMode(Phaser.BlendModes.ADD)
-        .setDepth(2)
+        .setDepth(LIGHT.halo.depth)
       // Шаг 9: Glow-фильтр на биолюминесценции (высокое качество).
       this.vfx.registerGlow(glow)
       this.mask.add({
@@ -1509,7 +1573,7 @@ export class CaveScene extends Phaser.Scene {
 
       this.tweens.add({
         targets: glow,
-        alpha: { from: 0.18, to: 0.42 },
+        alpha: { from: LIGHT.halo.mushroom * 0.6, to: LIGHT.halo.mushroom * 1.25 },
         scale: { from: 0.65, to: 0.95 },
         duration: 1700 + ((i * 137) % 1400),
         yoyo: true,
@@ -1536,10 +1600,10 @@ export class CaveScene extends Phaser.Scene {
       const y = (n.ty + 1) * tile - 6
       const marker = this.add.image(x, y - 8, 'spore')
         .setTint(band ? bandColorInt(band) : 0xe23a4e)
-        .setAlpha(0.28)
+        .setAlpha(LIGHT.halo.nest)
         .setScale(2.4)
         .setBlendMode(Phaser.BlendModes.ADD)
-        .setDepth(1)
+        .setDepth(LIGHT.halo.depth)
       this.mask.add({
         x: () => x,
         y: () => y - 8,
@@ -1548,7 +1612,7 @@ export class CaveScene extends Phaser.Scene {
       })
       this.tweens.add({
         targets: marker,
-        alpha: { from: 0.14, to: 0.34 },
+        alpha: { from: LIGHT.halo.nest * 0.55, to: LIGHT.halo.nest * 1.2 },
         scale: { from: 2.0, to: 2.8 },
         duration: 2400,
         yoyo: true,
@@ -1603,9 +1667,9 @@ export class CaveScene extends Phaser.Scene {
 
     const gateGlow = this.add.image(x, y, 'glow-cyan')
       .setScale(2.6)
-      .setAlpha(0.4)
+      .setAlpha(LIGHT.halo.gate)
       .setBlendMode(Phaser.BlendModes.ADD)
-      .setDepth(1)
+      .setDepth(LIGHT.halo.depth)
     this.vfx.registerGlow(gateGlow)
     this.mask.add({
       x: () => x,
@@ -1763,9 +1827,9 @@ export class CaveScene extends Phaser.Scene {
       const x = tx * tile + tile / 2
       const y = (ty + 1) * tile - 8
       const glow = this.add.image(x, y - 6, 'glow-purple')
-        .setDepth(2)
+        .setDepth(LIGHT.halo.depth)
         .setBlendMode(Phaser.BlendModes.ADD)
-        .setAlpha(0.26)
+        .setAlpha(LIGHT.halo.flower)
         .setScale(0.7)
       const img = this.add.image(x, y, 'mutation-gem')
         .setDepth(2)
@@ -1773,7 +1837,7 @@ export class CaveScene extends Phaser.Scene {
         .setScale(0.8)
       this.tweens.add({
         targets: glow,
-        alpha: { from: 0.14, to: 0.34 },
+        alpha: { from: LIGHT.halo.flower * 0.55, to: LIGHT.halo.flower * 1.25 },
         scale: { from: 0.6, to: 0.85 },
         duration: 1500 + placed * 130,
         yoyo: true,
@@ -1814,13 +1878,13 @@ export class CaveScene extends Phaser.Scene {
         })
       }
       const glow = this.add.image(x, y - 4, 'glow-purple')
-        .setDepth(1)
+        .setDepth(LIGHT.halo.depth)
         .setBlendMode(Phaser.BlendModes.ADD)
-        .setAlpha(0.3)
+        .setAlpha(LIGHT.halo.pool)
         .setScale(1.2)
       this.tweens.add({
         targets: glow,
-        alpha: { from: 0.18, to: 0.4 },
+        alpha: { from: LIGHT.halo.pool * 0.55, to: LIGHT.halo.pool * 1.25 },
         scale: { from: 1.05, to: 1.4 },
         duration: 1600,
         yoyo: true,

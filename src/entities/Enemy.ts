@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { ENEMIES, armorResist, type AttackConfig, type DamageType, type SpeciesConfig } from '../config/enemies'
 import type { Carcass } from '../systems/Eating'
+import { LIGHT } from '../config/light'
 
 /**
  * Enemy — шаг 7: мобы и живая экосистема.
@@ -240,13 +241,15 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.hp = this.maxHp
     this.setScale(this.scaleX * 1.35, this.scaleY * 1.35)
     this.eliteGlow = this.scene.add.image(this.x, this.y, 'glow-purple')
-      .setDepth(DEPTH_ENEMY - 1)
+      // Шаг 18: аура элиты НАД маской тьмы — угроза видна издали
+      // в полной темноте (сияние не съедается вуалью).
+      .setDepth(LIGHT.halo.depth)
       .setBlendMode(Phaser.BlendModes.ADD)
-      .setAlpha(0.3)
+      .setAlpha(LIGHT.halo.elite)
       .setScale(1.4)
     this.scene.tweens.add({
       targets: this.eliteGlow,
-      alpha: { from: 0.18, to: 0.4 },
+      alpha: { from: LIGHT.halo.elite * 0.6, to: LIGHT.halo.elite * 1.3 },
       scale: { from: 1.2, to: 1.6 },
       duration: 1400,
       yoyo: true,

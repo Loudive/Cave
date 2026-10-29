@@ -36,6 +36,13 @@ export class BootScene extends Phaser.Scene {
         frameWidth: HERO_FRAME.w,
         frameHeight: HERO_FRAME.h,
       })
+      // Шаг 18: lumen-двойники — только биолюм-метки (циан + глаза),
+      // рендерятся НАД маской тьмы: существо — самосветящийся источник
+      // (референсы). Сетка кадров 1:1 с основными листами.
+      this.load.spritesheet(`hero-${name}-lumen`, assetUrl(`hero-${name}-lumen.png`), {
+        frameWidth: HERO_FRAME.w,
+        frameHeight: HERO_FRAME.h,
+      })
     }
 
     // Шаг 10: SFX + музыка синтезированы в браузере — ставим в кэш напрямую
