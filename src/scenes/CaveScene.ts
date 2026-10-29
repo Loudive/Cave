@@ -16,6 +16,7 @@ import { Spores } from '../systems/Spores'
 import { FireTrail } from '../systems/FireTrail'
 import { Ecosystem, type NestRecord } from '../systems/Ecosystem'
 import { Vfx } from '../systems/Vfx'
+import { MeleeFx } from '../systems/MeleeFx'
 import { DESIGN_W, DESIGN_H, uiZoom } from '../systems/RenderScale'
 import { Companion } from '../entities/Companion'
 import { GENES, loadGeneSave, saveGeneSave, grantGene, type GeneSave, type GeneDef } from '../config/genes'
@@ -120,6 +121,8 @@ export class CaveScene extends Phaser.Scene {
   private fire!: FireTrail
   private eco!: Ecosystem
   private vfx!: Vfx
+  /** Шаг 27: фидбек ближнего боя (след/штрихи пике/осколки/пыль). */
+  private meleefx!: MeleeFx
   // Шаг 8: геномы — постоянные гены, цветки, лунки, уникальные, спутник.
   private geneSave!: GeneSave
   private genesGained: string[] = []
@@ -152,6 +155,8 @@ export class CaveScene extends Phaser.Scene {
   private wingTrailNextAt = 0
   /** Шаг 20: прошлое состояние существа (взмах на входе в планирование). */
   private prevAeroState = ''
+  /** Шаг 27: таймер следующего штриха пике (след боевого наскока). */
+  private diveStreakNextAt = 0
   private exiting = false
   private dying = false
   private maxMeters = 0
@@ -430,6 +435,9 @@ export class CaveScene extends Phaser.Scene {
     // Шаг 9: juice-слой (вспышки, хроматика, слоу-мо, Glow, искры).
     this.vfx = new Vfx(this, this.blood, this.hitStop)
     QUALITY.onChange(() => this.vfx.refreshForQuality())
+    // Шаг 27: фидбек ближнего боя — чисто презентационный слой поверх
+    // существующих хуков боя (след по хитбоксу / штрихи пике / осколки / пыль).
+    this.meleefx = new MeleeFx(this, this.vfx, this.blood, this.hitStop)
 
     // Шаг 12: скалы (5 видов, биомный тон) и лозы с потолков — здесь,
     // потому что редкие плиты-жилы регистрируют свечение через this.vfx.
@@ -450,8 +458,20 @@ export class CaveScene extends Phaser.Scene {
     this.combat.onHeavyHit = (damage) => this.vfx.chromaticHit(damage >= 20 ? 1.5 : 1)
     // Шаг 20: всплеск попадания укуса («ауры ударов, сплеши») — кольцо
     // + конус биолюм-искр + циановая вспышка над маской тьмы.
-    this.combat.onBiteHit = (x, y, facing, killed) =>
-      this.vfx.hitSplash(x, y, facing, killed)
+    // Шаг 27: импакт идёт через MeleeFx — буст силы по виду удара
+    // (укус 1 / пике 1.15 / сильный 1.2 / убийство 1.35 поверх
+    // flashIntensity), осколки — только значимым, пыль — сильному.
+    this.combat.onBiteHit = (x, y, facing, killed) => {
+      const st = this.combat.state
+      this.meleefx.impact(x, y, facing, killed, st === 'dive' ? 'dive' : st === 'heavy-active' ? 'heavy' : 'bite')
+    }
+    // Шаг 27: след атаки — пунктир РОВНО по границе хитбокса текущего
+    // взмаха (Combat.swingGeometry — та же формула, что checkHits).
+    // На промахе след тоже есть: это замах, а не контакт с жертвой.
+    this.combat.onBiteSwing = () => this.meleefx.swing(this.combat.swingGeometry())
+    // Шаг 27: «кланк» по свёрнутому панцирю — искры отскока в точке контакта
+    // (без вспышки попадания: урона-то нет). Хук рассчитан на это с шага 10.
+    this.combat.onArmorClank = (x, y) => this.vfx.sparks(x, y, 8)
 
     // ── Шаг 24: джус сильного удара и пике ────────────────────────────
     // Заряд: багровое сияние растёт под героем весь замах.
@@ -893,6 +913,8 @@ export class CaveScene extends Phaser.Scene {
       this.motes.update(this, this.creature.x, this.creature.y)
       // Шаг 20: аэро-джус существа — шлейф крыльев + взмахи (см. ниже).
       this.updateAero(time)
+      // Шаг 27: штрихи пике во время боевого наскока.
+      this.updateDiveStreaks(time)
       // Шаг 24: заряд сильного удара держится на герое (замах можно вести в движении).
       if (this.heavyChargeGlow) {
         this.heavyChargeGlow.setPosition(this.creature.x, this.creature.y)
@@ -2630,6 +2652,27 @@ export class CaveScene extends Phaser.Scene {
     if (!fast || time < this.wingTrailNextAt) return
     this.wingTrailNextAt = time + VFX.aero.wingTrail.everyMs
     this.vfx.wingTrailTick(this.creature.x - this.creature.facing * 12, this.creature.y + 2)
+  }
+
+  /**
+   * Шаг 27: штрихи пике — резкие черточки ПО ЗАДИ траектории боевого
+   * наскока (против направления движения), пока Combat в состоянии dive.
+   * Отдельный таймер от шлейфа крыльев: пике резче и реже — скорость
+   * читается самой формой штриха, без светомузыки.
+   */
+  private updateDiveStreaks(time: number): void {
+    if (this.combat.state !== 'dive' || time < this.diveStreakNextAt) return
+    this.diveStreakNextAt = time + VFX.meleeFx.dive.everyMs
+    const body = this.creature.body as Phaser.Physics.Arcade.Body
+    const vx = body.velocity.x
+    const vy = body.velocity.y
+    const v = Math.hypot(vx, vy) || 1
+    // Как wingTrailTick: позади на 12, чуть выше оси (+2 по Y).
+    this.meleefx.diveStreak(
+      this.creature.x - (vx / v) * 12,
+      this.creature.y - (vy / v) * 12 + 2,
+      Phaser.Math.RadToDeg(Math.atan2(vy, vx)),
+    )
   }
 
   /** Спутник «Короны Матки»: побеждённый мелкий моб встаёт в свиту. */

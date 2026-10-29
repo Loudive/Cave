@@ -216,8 +216,12 @@ export class Vfx {
 
   /** Всплеск попадания укуса («аура удара/сплеш»): расширяющееся кольцо
    *  + конус искр от пасти в жертву + мгновенная циановая вспышка.
-   *  Всё НАД маской тьмы — попадание читается в полной темноте. */
-  hitSplash(x: number, y: number, dirX: number, killed = false): void {
+   *  Всё НАД маской тьмы — попадание читается в полной темноте.
+   *  Шаг 27: boost (≥0) — множитель силы (MeleeFx ставит по виду удара:
+   *  укус 1 / пике 1.15 / сильный 1.2 / убийство 1.35, поверх
+   *  meleeFx.flashIntensity): масштабирует альфы и размах кольца/гало
+   *  и густоту искр. Один удар = один вызов (без двойных вспышек). */
+  hitSplash(x: number, y: number, dirX: number, killed = false, boost = 1): void {
     const h = VFX.aero.hitSplash
     // Кольцо из пула (3 — перекрытие малое: всплески реже чавканья).
     let ring = this.aeroRings.find((r) => !r.visible)
@@ -225,11 +229,11 @@ export class Vfx {
     this.scene.tweens.killTweensOf(ring)
     ring.setPosition(x, y)
       .setScale(h.ringScaleFrom)
-      .setAlpha(h.ringAlpha * (killed ? 1.25 : 1))
+      .setAlpha(Math.min(1, h.ringAlpha * (killed ? 1.25 : 1) * boost))
       .setVisible(true)
     this.scene.tweens.add({
       targets: ring,
-      scale: h.ringScaleTo * (killed ? 1.2 : 1),
+      scale: h.ringScaleTo * (killed ? 1.2 : 1) * boost,
       alpha: 0,
       duration: h.ringMs,
       ease: 'Cubic.Out',
@@ -239,7 +243,7 @@ export class Vfx {
     const dir = dirX >= 0 ? -25 : 205
     const count = Math.max(
       2,
-      Math.round(h.sparkCount * (killed ? 1.5 : 1) * QUALITY.particleMult),
+      Math.round(h.sparkCount * (killed ? 1.5 : 1) * boost * QUALITY.particleMult),
     )
     this.aeroEmitter.setConfig({
       speed: { min: h.sparkSpeedMin, max: h.sparkSpeedMax },
@@ -257,13 +261,13 @@ export class Vfx {
     if (!glow) glow = this.aeroGlows[0]
     this.scene.tweens.killTweensOf(glow)
     glow.setPosition(x, y)
-      .setScale(h.flashScale)
-      .setAlpha(h.flashAlpha)
+      .setScale(h.flashScale * boost)
+      .setAlpha(Math.min(1, h.flashAlpha * boost))
       .setVisible(true)
     this.scene.tweens.add({
       targets: glow,
       alpha: 0,
-      scale: h.flashScale * 2.2,
+      scale: h.flashScale * boost * 2.2,
       duration: h.flashMs,
       ease: 'Quad.Out',
       onComplete: () => glow!.setVisible(false),

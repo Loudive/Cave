@@ -28,6 +28,7 @@ export interface VfxConfig {
   cameraBaseZoom: number
   cameraFollowLerp: number
   aero: VfxAero
+  meleeFx: VfxMeleeFx
 }
 
 /** Шаг 20: аэро-джус — шлейф крыльев / взмахи / всплески ударов. */
@@ -88,6 +89,70 @@ export interface VfxAero {
   hitSplash: VfxAeroHitSplash
 }
 
+/** Шаг 27: единые настройки фидбека ближнего боя (слой MeleeFx). */
+export interface VfxMeleeTrail {
+  dashPoolSize: number
+  segments: number
+  heavySegK: number
+  alpha: number
+  edgeAlphaK: number
+  scale: number
+  heavyLifeK: number
+  tintBite: number
+  tintHeavy: number
+}
+
+export interface VfxMeleeDive {
+  everyMs: number
+  streaks: number
+  spreadDeg: number
+  alpha: number
+  scale: number
+  lifeK: number
+  tint: number
+}
+
+export interface VfxMeleeDebris {
+  gravity: number
+  speedMin: number
+  speedMax: number
+  spreadDeg: number
+  lifeMin: number
+  lifeMax: number
+  scaleStart: number
+  scaleEnd: number
+  alphaStart: number
+  rotateMin: number
+  rotateMax: number
+  tint: number
+  dirDeg: number
+  dustSpreadDeg: number
+  countHeavy: number
+  countKill: number
+  countDive: number
+  dustCount: number
+  dustSpeedMult: number
+}
+
+export interface VfxMeleeBoost {
+  heavy: number
+  kill: number
+  dive: number
+}
+
+export interface VfxMeleeFx {
+  enabled: number
+  flashIntensity: number
+  particleCount: number
+  trailMs: number
+  shakeScale: number
+  hitstopScale: number
+  trail: VfxMeleeTrail
+  dive: VfxMeleeDive
+  debris: VfxMeleeDebris
+  boost: VfxMeleeBoost
+}
+
 const VFX_NUMBER_KEYS: readonly NumberKeys<VfxConfig>[] = [
   'flashPoolSize',
   'flashMs',
@@ -122,6 +187,24 @@ assertNumbers(unwrapped.aero.hitSplash, 'vfx.json aero.hitSplash', [
   'sparkLifeMin', 'sparkLifeMax', 'sparkGravityY',
   'sparkScaleStart', 'sparkScaleEnd', 'sparkAlphaStart',
   'flashScale', 'flashAlpha', 'flashMs', 'tint',
+] as const)
+// Шаг 27: секция meleeFx — единые настройки фидбека ударов.
+assertNumbers(unwrapped.meleeFx, 'vfx.json meleeFx', [
+  'enabled', 'flashIntensity', 'particleCount', 'trailMs', 'shakeScale', 'hitstopScale',
+] as const)
+assertNumbers(unwrapped.meleeFx.trail, 'vfx.json meleeFx.trail', [
+  'dashPoolSize', 'segments', 'heavySegK', 'alpha', 'edgeAlphaK', 'scale', 'heavyLifeK', 'tintBite', 'tintHeavy',
+] as const)
+assertNumbers(unwrapped.meleeFx.dive, 'vfx.json meleeFx.dive', [
+  'everyMs', 'streaks', 'spreadDeg', 'alpha', 'scale', 'lifeK', 'tint',
+] as const)
+assertNumbers(unwrapped.meleeFx.debris, 'vfx.json meleeFx.debris', [
+  'gravity', 'speedMin', 'speedMax', 'spreadDeg', 'lifeMin', 'lifeMax',
+  'scaleStart', 'scaleEnd', 'alphaStart', 'rotateMin', 'rotateMax', 'tint',
+  'dirDeg', 'dustSpreadDeg', 'countHeavy', 'countKill', 'countDive', 'dustCount', 'dustSpeedMult',
+] as const)
+assertNumbers(unwrapped.meleeFx.boost, 'vfx.json meleeFx.boost', [
+  'heavy', 'kill', 'dive',
 ] as const)
 
 export const VFX = unwrapped

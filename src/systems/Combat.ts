@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { BALANCE } from '../config/balance'
 import { ENEMIES } from '../config/enemies'
+import { VFX } from '../config/vfx'
 import type { Creature } from '../entities/Creature'
 import type { Enemy } from '../entities/Enemy'
 import type { BloodFx } from './BloodFx'
@@ -27,8 +28,25 @@ import type { Eating } from './Eating'
  *  • УДАР С ПОЛЁТА (J в падении/плане): dive — диагональный пике-наскок
  *    по стае; попадание подбрасывает охотника (цепочки), приземление
  *    без добычи бьёт ударной волной. Все числа — balance.json heavy/dive.
+ *
+ * Шаг 27 (визуальная отдача боя): НИКАКОЙ боевой логики не изменено —
+ * только три презентационные добавки: (а) swingGeometry() — готовые точки
+ * ГРАНИЦЫ хитбокса для следа удара (MeleeFx рисует пунктир ровно по ней);
+ * (б) freezeJuice() — тот же hit-stop, но с ручкой meleeFx.hitstopScale;
+ * (в) shakeCamera умножает силу на meleeFx.shakeScale. При enabled=0
+ * в vfx.json meleeFx — все три ручки возвращают 1, бой идёт как раньше.
  */
 export type BiteState = 'ready' | 'windup' | 'active' | 'recover' | 'heavy-windup' | 'heavy-active' | 'dive'
+
+/** Шаг 27: точка пунктира следа удара на границе хитбокса (мировые координаты). */
+export interface SwingPoint {
+  x: number
+  y: number
+  /** Поворот штриха: касательная к границе в этой точке (град, 0 = вправо). */
+  rotDeg: number
+  /** 0 = центр дуги (остриё выпада), 1 = край дуги — для альфа-затухания. */
+  edgeT: number
+}
 
 export interface CombatMods {
   /** Стан жертвы от укуса (мутация «Электроорганы»). */
@@ -332,7 +350,7 @@ export class Combat {
       })
       any = true
     }
-    this.hitStop.freeze(d.hitstopMs)
+    this.freezeJuice(d.hitstopMs)
     this.shakeCamera(d.shakePx, d.shakeMs)
     this.onDiveLand?.(cx, cy, any)
   }
@@ -438,7 +456,7 @@ export class Combat {
       enemy.overkilled = true
     }
     // Шаг 10: урон полностью срезан броней — металл-панцирь «кланк».
-    if (applied <= 0 && !killed) this.onArmorClank?.()
+    if (applied <= 0 && !killed) this.onArmorClank?.(enemy.x, enemy.y)
 
     // Кровь в сторону укуса + на пол под жертвой.
     this.blood.burst(enemy.x, enemy.y, {
@@ -458,20 +476,85 @@ export class Combat {
     // Туша/кровь-взрыв/мутации ставит сцена в Enemy onDeath (единая точка —
     // чтобы «Токсичная шкура» и прочие косвенные смерти тоже оставляли добычу).
     if (killed) {
-      this.hitStop.freeze(hit.killHitstopMs)
+      this.freezeJuice(hit.killHitstopMs)
       this.shakeCamera(hit.killShakePx, hit.killShakeMs)
       this.blood.number(enemy.x, enemy.y - 18, `${Math.round(applied)}`, '#ffffff', true)
     } else {
-      this.hitStop.freeze(o.hitstopMs ?? hit.hitstopMs)
+      this.freezeJuice(o.hitstopMs ?? hit.hitstopMs)
       this.shakeCamera(o.shakePx ?? hit.shakePx, o.shakeMs ?? hit.shakeMs)
       this.blood.number(enemy.x, enemy.y - 16, `${Math.round(applied)}`, o.heavy ? '#E8A34F' : '#ffffff')
     }
   }
 
-  /** Тряска в пикселях: intensity Phaser — доля ширины кадра. */
+  /** Тряска в пикселях: intensity Phaser — доля ширины кадра.
+   *  Шаг 27: сила × meleeFx.shakeScale (единая ручка vfx.json; длина
+   *  тряски НЕ масштабируется — остаётся краткой по требованиям). */
   private shakeCamera(px: number, ms: number): void {
     const cam = this.scene.cameras.main
-    cam.shake(ms, px / cam.width)
+    const k = VFX.meleeFx.enabled ? VFX.meleeFx.shakeScale : 1
+    cam.shake(ms, (px * k) / cam.width)
+  }
+
+  /** Шаг 27: hit-stop с ручкой meleeFx.hitstopScale — ВСЕ заморозки боя
+   *  (попадание/убийство/пике/урон игроку) идут через эту точку. */
+  private freezeJuice(ms: number): void {
+    this.hitStop.freeze(ms * (VFX.meleeFx.enabled ? VFX.meleeFx.hitstopScale : 1))
+  }
+
+  /**
+   * Шаг 27: геометрия текущего взмаха для следа удара (читает MeleeFx
+   * через onBiteSwing). Единственный источник правды — ТА ЖЕ формула,
+   * что checkHits: передняя полусфера ∩ сектор (range × rangeMult,
+   * дуга arc/2 ≤ 90°) ∩ вертикальный кламп |dy| ≤ 0.75·range.
+   * Возвращает пунктир по ГРАНИЦЕ зоны попадания в мировых координатах:
+   * след совпадает с хитбоксом ПО ПОСТРОЕНИЮ — «декоративным не по
+   * хитбоксу» он быть не может. Радиус границы: круг r=range до угла
+   * asin(0.75)≈48.6°, дальше горизонталь dy=0.75·range до края дуги —
+   * укус получает «D»-фронт, сильный удар (дуга ≥180°) раскрывается
+   * до ±90°: широко вплотную и далеко впереди.
+   */
+  swingGeometry(): { heavy: boolean; points: SwingPoint[] } {
+    const p = BALANCE.player
+    const h = BALANCE.heavy
+    const t27 = VFX.meleeFx.trail
+    const heavy = this.stateName === 'heavy-active'
+    const facing = this.creature.facing
+    const range = (p.biteRange + this.mods.biteRangeBonus) * (heavy ? h.rangeMult : 1)
+    const arc2 = Math.min(90, (heavy ? h.arcDeg : p.biteArcDeg + this.mods.biteArcBonus) / 2)
+    const dyMax = range * 0.75 // тот же кламп, что в checkHits
+    const total = Math.max(5, Math.round(t27.segments * (heavy ? t27.heavySegK : 1)))
+    const per = Math.max(2, Math.round((total - 1) / 2))
+
+    // Непрерывная кривая: верхний край → центр → нижний край.
+    // fy<0 — выше существа (экранная ось Y вниз).
+    const local: { fx: number; fy: number; edgeT: number }[] = []
+    const push = (thDeg: number, side: number) => {
+      const th = Phaser.Math.DegToRad(thDeg)
+      const r = Math.min(range, dyMax / Math.max(Math.sin(th), 1e-3))
+      local.push({
+        fx: r * Math.cos(th),
+        fy: side * r * Math.sin(th),
+        edgeT: arc2 > 0 ? thDeg / arc2 : 1,
+      })
+    }
+    for (let i = per; i >= 1; i--) push((arc2 * i) / per, -1) // верхняя полудуга: край → к центру
+    push(0, 0)                                                   // остриё выпада
+    for (let i = 1; i <= per; i++) push((arc2 * i) / per, 1)     // нижняя полудуга: от центра → край
+
+    const points: SwingPoint[] = []
+    for (let i = 0; i < local.length; i++) {
+      const prev = local[Math.max(0, i - 1)]
+      const next = local[Math.min(local.length - 1, i + 1)]
+      const tdx = facing * (next.fx - prev.fx)
+      const tdy = next.fy - prev.fy
+      points.push({
+        x: this.creature.x + facing * local[i].fx,
+        y: this.creature.y + local[i].fy,
+        rotDeg: Phaser.Math.RadToDeg(Math.atan2(tdy, tdx)),
+        edgeT: local[i].edgeT,
+      })
+    }
+    return { heavy, points }
   }
 
   /** Причина последнего удара (для экрана итога, шаг 8). */
@@ -495,8 +578,8 @@ export class Combat {
   onBiteHit: ((x: number, y: number, facing: number, killed: boolean) => void) | null = null
   /** Шаг 10: начало выпада укуса (сцена играет звук). */
   onBiteSwing: (() => void) | null = null
-  /** Шаг 10: урон полностью поглощен броней (панцирь — «кланк»). */
-  onArmorClank: (() => void) | null = null
+  /** Шаг 10: урон полностью поглощен броней (панцирь — «кланк»). Шаг 27: передаёт точку контакта — сцена даёт искры отскока. */
+  onArmorClank: ((x: number, y: number) => void) | null = null
 
   /** Урон игроку: мигание неуязвимости возвращает интервал. */
   hurtPlayer(damage: number, cause = 'пещера'): number {
@@ -523,7 +606,7 @@ export class Combat {
         spreadDeg: 360,
       })
       this.blood.number(this.creature.x, this.creature.y - 22, `−${damage}`, '#E23A4E', true)
-      this.hitStop.freeze(BALANCE.hit.hitstopMs)
+      this.freezeJuice(BALANCE.hit.hitstopMs)
       this.shakeCamera(BALANCE.hit.shakePx + 2, BALANCE.hit.shakeMs + 40)
     }
     return applied
@@ -586,7 +669,7 @@ export class Combat {
       })
       this.blood.number(this.creature.x, this.creature.y - 24, `−${damage}`, '#B36BFF', true)
       this.creature.slowUntil = now + BALANCE.spore.slowMs
-      this.hitStop.freeze(BALANCE.hit.hitstopMs)
+      this.freezeJuice(BALANCE.hit.hitstopMs)
       this.shakeCamera(BALANCE.hit.shakePx, BALANCE.hit.shakeMs)
     }
     return applied
