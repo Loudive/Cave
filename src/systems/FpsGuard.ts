@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { QUALITY } from './quality'
 import { FPS } from '../config/fps'
+import { uiAttach } from './UiLayer'
 
 /**
  * FpsGuard — шаг 10 (перфоманс): наблюдатель кадровой частоты.
@@ -67,6 +68,8 @@ export class FpsGuard {
       .setScrollFactor(0)
       .setDepth(24)
       .setOrigin(0.5)
+    // Шаг 20: тост — экранным слоем (не зумится с камерой).
+    uiAttach(this.scene, this.toast)
     this.scene.tweens.add({
       targets: this.toast,
       alpha: 0,

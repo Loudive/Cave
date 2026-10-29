@@ -137,7 +137,6 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
   // ── Полёт и визуал ────────────────────────────────────────────────────────
   private batAnchor: { x: number; y: number } | null = null
-  private flapAcc = 0
   private windupFx: Phaser.GameObjects.Graphics
   private drainBeamGfx: Phaser.GameObjects.Graphics | null = null
 
@@ -297,14 +296,10 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       this.parasiteDps = 0
     }
 
-    // Взмахи крыльев: читаемый ритм полёта (нетопырь).
-    if (this.species.fly) {
-      this.flapAcc += delta
-      if (this.flapAcc > this.species.fly.wingFlapMs) {
-        this.flapAcc = 0
-        this.tweenSquish(1.1, 0.9, 140)
-      }
-    }
+    // Шаг 20: живая анимация вида (лист 4 кадра, fps из species.anim).
+    // Раньше полёт нетопыря изображался кодовым сквошем wingFlapMs — теперь
+    // настоящий мах кадрами; пауза при остановке (anims.pause).
+    this.updateAnim()
 
     switch (this.stateName) {
       case 'stunned': this.updateStunned(now); break
@@ -1223,10 +1218,36 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
   // ── Силуэт и утилиты ───────────────────────────────────────────────────────
 
+  /**
+   * Шаг 20: живая анимация вида. Walk-цикл (4 кадра 68×46, fps из
+   * species.anim) играется всегда для летающих (мах — часть полёта) и
+   * для идущих по земле; при остановке — пауза (кадр замирает, «стоит
+   * и дышит» — потом ещё и присед-сквош твинами поверж).
+   */
+  private updateAnim(): void {
+    if (this.dead) return
+    const key = `mob-${this.speciesId}-walk`
+    if (this.anims.currentAnim?.key !== key) {
+      this.play(key)
+    }
+    const body = this.body as Phaser.Physics.Arcade.Body
+    const moving = !!this.species.fly || Math.abs(body.velocity.x) > 8
+    if (moving) {
+      if (!this.anims.isPlaying) this.anims.resume()
+    } else {
+      this.anims.pause()
+    }
+  }
+
   private syncTwin(): void {
     this.twin.setPosition(this.x, this.y)
     this.twin.setFlipX(this.flipX)
     this.twin.setScale(this.scaleX, this.scaleY)
+    // Шаг 20: листы анимаций — силуэт обязан повторять КАДР основного
+    // спрайта (раньше текстура была статичной и кадра не было).
+    if (this.twin.frame && this.twin.frame.name !== this.frame.name) {
+      this.twin.setFrame(this.frame.name)
+    }
     if (this.eliteGlow) this.eliteGlow.setPosition(this.x, this.y)
   }
 
@@ -1255,6 +1276,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     })
   }
 
+  /** Шаг 20: сквош-твин оставлен — юзают замахи/выпады/приземления мобов. */
   private tweenSquish(sx: number, sy: number, ms: number): void {
     this.scene.tweens.killTweensOf(this)
     this.scene.tweens.add({

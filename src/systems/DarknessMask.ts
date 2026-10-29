@@ -232,6 +232,17 @@ export class DarknessMask {
     const t = scene.time.now
     const maxLights = LIGHT.shader.maxLights
 
+    // Шаг 20: координаты источников — ЭКРАННЫЕ пиксели. Зум камеры в
+    // Phaser зумит вокруг ЦЕНТРА ЭКРАНА (Camera.preRender: applyITRS к
+    // центру) — мировая точка p рендерится как screen = z·(p − scroll) +
+    // C·(1−z), C = половина экрана. Проверено по cam.getWorldPoint
+    // (обратное преобразование Phaser): без константы C·(1−z) дыры
+    // уезжали на полэкрана. Радиус мировой → на экране r·z.
+    // (Маска — fullscreen-квад: при z ≥ 1 перекрывает экран с запасом.)
+    const z = Number.isFinite(cam.zoom) && cam.zoom > 0 ? cam.zoom : 1
+    const offX = (cam.width / 2) * (1 - z)
+    const offY = (cam.height / 2) * (1 - z)
+
     // Сбор экранных координат источников с отсечением за кадром.
     let count = 0
     let gazeIdx = -1
@@ -241,17 +252,16 @@ export class DarknessMask {
       if (l.scaleNow) r *= l.scaleNow()
       if (l.flicker !== undefined) r *= this.flickerFactor(t, l.flicker)
       if (l.breathe) r = this.playerRadius(t)
-      // Мировые → экранные (FIT 960×540; краткий зум слоу-мо игнорируем —
-      // прежний RT-путь имел то же допущение).
-      const sx = l.x() - cam.scrollX
-      const sy = l.y() - cam.scrollY
-      if (sx < -r || sy < -r || sx > cam.width + r || sy > cam.height + r) continue
+      // Мировые → экранные (FIT 960×540); зум с анкером центра — шаг 20.
+      const sx = (l.x() - cam.scrollX) * z + offX
+      const sy = (l.y() - cam.scrollY) * z + offY
+      if (sx < -r * z || sy < -r * z || sx > cam.width + r * z || sy > cam.height + r * z) continue
       // Шаг 13: индекс света существа в массиве — для «взгляда хищника».
       if (l === this.playerLight) gazeIdx = count
       const o = count * 3
       this.lightArr[o] = sx
       this.lightArr[o + 1] = sy
-      this.lightArr[o + 2] = r
+      this.lightArr[o + 2] = r * z
       count++
     }
     this.lastHoles = count
@@ -271,6 +281,11 @@ export class DarknessMask {
     // ── Canvas-фолбэк: RT, дыры одним батчем ────────────────────────────────
     // (WebGL-шейдер — целевой путь; тут приближение: дыра существа рисуется
     // приглушённо — грубый аналог умбры/кольца без кривых.)
+    // Шаг 20: RT — тоже scrollFactor(0)-квад и рендерится тем же зумом
+    // вокруг центра: локальная координата x идёт на экран как
+    // z·(x − C) + C → чтобы дыра встала на экранную (sx, sy), в локале RT
+    // нужна (sx + C·(z−1))/z. РАЗМЕР в локале НЕ меняется: локальный
+    // размер s рендерится s·z экранных px — ровно нужный диаметр 2·r·z.
     const rt = this.rt!
     const hole = this.hole!
     rt.clear()
@@ -278,11 +293,13 @@ export class DarknessMask {
     if (count === 0) return
     rt.beginDraw()
     let holeIdx = 0
+    const lx = (cam.width / 2) * (z - 1)
+    const ly = (cam.height / 2) * (z - 1)
     for (let i = 0; i < count; i++) {
       const sx = this.lightArr[i * 3]
       const sy = this.lightArr[i * 3 + 1]
-      const r = this.lightArr[i * 3 + 2]
-      hole.setPosition(sx, sy)
+      const r = this.lightArr[i * 3 + 2] / z
+      hole.setPosition((sx + lx) / z, (sy + ly) / z)
         .setDisplaySize(r * 2, r * 2)
         .setAlpha(holeIdx === gazeIdx ? LIGHT.darkness.falloff.playerUmbra : 1)
       rt.batchDraw(hole)

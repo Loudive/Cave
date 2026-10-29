@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import { Creature } from '../entities/Creature'
+import { uiAttach } from './UiLayer'
 
 /**
  * DebugOverlay — шаг 3: оверлей состояния существа.
@@ -29,6 +30,8 @@ export class DebugOverlay {
     })
       .setScrollFactor(0)
       .setDepth(20)
+    // Шаг 20: дебаг-текст — экранным слоем (не зумится с камерой).
+    uiAttach(scene, this.text)
 
     try {
       this.visible = localStorage.getItem('cave-debug') === '1'

@@ -40,6 +40,9 @@ export class Companion extends Phaser.Physics.Arcade.Sprite {
     body.setSize(18, 12)
     this.setOffset((this.width - 18) / 2, this.height - 12)
     this.setBounce(0.15, 0)
+    // Шаг 20: спутник играет ту же walk-анимацию, что и дикие слизни
+    // (лист mob-slug теперь анимированный, 4 кадра).
+    this.play('mob-slug-walk')
 
     this.twin = scene.add.image(x, y, 'mob-slug')
       .setDepth(15)
@@ -100,6 +103,10 @@ export class Companion extends Phaser.Physics.Arcade.Sprite {
 
     // Силуэт вне света и лёгкая пульсация свиты.
     this.twin.setPosition(this.x, this.y).setFlipX(this.flipX).setScale(this.scaleX, this.scaleY)
+    // Шаг 20: кадр листа — как у мобов (силуэт повторяет позу).
+    if (this.twin.frame && this.twin.frame.name !== this.frame.name) {
+      this.twin.setFrame(this.frame.name)
+    }
     const d = Phaser.Math.Distance.Between(this.x, this.y, px, py)
     const inner = playerLightR * 0.92
     const outer = playerLightR * 1.3

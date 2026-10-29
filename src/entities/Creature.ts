@@ -127,6 +127,31 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
   onHardLand: ((impactVy: number) => void) | null = null
   /** Отрыв от земли (прыжок/сход с края). */
   onTakeoff: (() => void) | null = null
+
+  // Шаг 20: РАЗДЕЛЬНЫЕ хранимые твины. Раньше каждый джус-метод звал
+  // tweens.killTweensOf(this) — и заодно УБИВАЛ мигание неуязвимости из
+  // hurtVisual на полёте: yoyo-твин не доходил до единицы, onComplete не
+  // вызывался, и альфа навсегда застревала между 0.35 и 1 — «персонаж
+  // становится полупрозрачным» (жалоба игрока). Теперь масштабные и
+  // альфа-твины живут независимо: каждый метод останавливает только
+  // свой тип, укус во время мигания больше не ломает альфу.
+  private scaleTween: Phaser.Tweens.Tween | null = null
+  private blinkTween: Phaser.Tweens.Tween | null = null
+
+  /** Остановить масштабный твин и вернуть базу (сквош-методы и сцена). */
+  stopScaleTween(): void {
+    if (this.scaleTween) {
+      this.scaleTween.remove()
+      this.scaleTween = null
+      this.setScale(this.baseScale)
+    }
+  }
+
+  /** Запустить масштабный твин, атомарно заменив предыдущий. */
+  private runScaleTween(config: Phaser.Types.Tweens.TweenBuilderConfig): void {
+    this.stopScaleTween()
+    this.scaleTween = this.scene.tweens.add(config)
+  }
   private wasOnGround = true
   private prevVy = 0
 
@@ -533,8 +558,7 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
     this.setAnimScale(ANIMS.bite.scale)
     this.play('hero-bite')
     const base = this.growthScale * this.animScale
-    this.scene.tweens.killTweensOf(this)
-    this.scene.tweens.add({
+    this.runScaleTween({
       targets: this,
       scaleX: base * 0.88,
       scaleY: base * 1.1,
@@ -546,8 +570,7 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
   /** Выпад: разжатие с перерастяжением — бросок в жертву. */
   biteActiveVisual(): void {
     const base = this.growthScale * this.animScale
-    this.scene.tweens.killTweensOf(this)
-    this.scene.tweens.add({
+    this.runScaleTween({
       targets: this,
       scaleX: base * 1.3,
       scaleY: base * 0.78,
@@ -561,8 +584,7 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
   /** Чавканье: довольное сжатие. */
   chewVisual(): void {
     const base = this.growthScale * this.animScale
-    this.scene.tweens.killTweensOf(this)
-    this.scene.tweens.add({
+    this.runScaleTween({
       targets: this,
       scaleX: base * 1.12,
       scaleY: base * 0.9,
@@ -573,18 +595,57 @@ export class Creature extends Phaser.Physics.Arcade.Sprite {
     })
   }
 
-  /** Урон: мигание на время неуязвимости + кадр боли. */
+  /** Урон: мигание на время неуязвимости + кадр боли.
+   *  Шаг 20: альфа-твин живёт ОТДЕЛЬНО от масштабных — укус/чавканье/
+   *  приземление больше не могут убить его на полпути (альфа не застревает).
+   *  Повторный урон перезапускает мигание с чистой единицы. */
   hurtVisual(ms: number): void {
     this.hurtTexUntil = this.scene.time.now + 220
-    this.scene.tweens.killTweensOf(this)
-    this.setScale(this.growthScale * this.animScale)
-    this.scene.tweens.add({
+    this.stopScaleTween()
+    if (this.blinkTween) {
+      this.blinkTween.remove()
+      this.blinkTween = null
+    }
+    this.setAlpha(1)
+    this.blinkTween = this.scene.tweens.add({
       targets: this,
       alpha: 0.35,
       duration: 70,
       yoyo: true,
       repeat: Math.ceil(ms / 140),
       onComplete: () => this.setAlpha(1),
+    })
+  }
+
+  /** Шаг 20 (Carrion): сквош приземления — твин живёт в существе,
+   *  чтобы stopScaleTween атомарно заменял его (двойное приземление
+   *  больше не плодит конкурирующие твины на одном объекте). */
+  landVisual(k: number): void {
+    const j = MOVEMENT.juice
+    const base = this.baseScale
+    this.runScaleTween({
+      targets: this,
+      scaleX: base * (1 + (j.landSquashX - 1) * k),
+      scaleY: base * (1 - (1 - j.landSquashY) * k),
+      duration: j.landSquashMs,
+      yoyo: true,
+      ease: 'Quad.Out',
+      onComplete: () => this.setScale(this.baseScale),
+    })
+  }
+
+  /** Шаг 20: стретч отрыва — там же (единая точка масштабных твинов). */
+  takeoffVisual(): void {
+    const j = MOVEMENT.juice
+    const base = this.baseScale
+    this.runScaleTween({
+      targets: this,
+      scaleX: base * j.takeoffStretchX,
+      scaleY: base * j.takeoffStretchY,
+      duration: j.takeoffMs,
+      yoyo: true,
+      ease: 'Quad.Out',
+      onComplete: () => this.setScale(this.baseScale),
     })
   }
 

@@ -3,6 +3,7 @@ import { BALANCE } from '../config/balance'
 import { QUALITY } from './quality'
 import { rarityColor, type Mutations } from './Mutations'
 import type { Vitals } from './Vitals'
+import { uiAttach } from './UiLayer'
 
 /**
  * Hud — шаг 6: состояние хищника.
@@ -55,9 +56,13 @@ export class Hud {
     this.gfx = scene.add.graphics().setScrollFactor(0).setDepth(DEPTH_HUD)
     // Рамки слотов статичны — отдельный Graphics, рисуется один раз.
     this.slotsGfx = scene.add.graphics().setScrollFactor(0).setDepth(DEPTH_HUD)
+    // Шаг 20: весь HUD — экранным слоем uiRoot (не зумится с камерой).
+    uiAttach(scene, this.gfx)
+    uiAttach(scene, this.slotsGfx)
 
     // Шаг 13: серия укусов — текст + полоска затухания окна.
     this.comboGfx = scene.add.graphics().setScrollFactor(0).setDepth(DEPTH_HUD)
+    uiAttach(scene, this.comboGfx)
     this.comboText = scene.add.text(scene.scale.width / 2, COMBO_Y, '', {
       fontFamily: 'monospace',
       fontSize: '14px',
@@ -66,18 +71,21 @@ export class Hud {
       stroke: '#0b0b10',
       strokeThickness: 3,
     }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(DEPTH_HUD)
+    uiAttach(scene, this.comboText)
 
     this.levelText = scene.add.text(BAR_X, BAR_Y + BAR_H + 16, '', {
       fontFamily: 'monospace',
       fontSize: '11px',
       color: '#B36BFF',
     }).setScrollFactor(0).setDepth(DEPTH_HUD)
+    uiAttach(scene, this.levelText)
 
     this.qualityText = scene.add.text(0, 0, '', {
       fontFamily: 'monospace',
       fontSize: '11px',
       color: '#8A8894',
     }).setScrollFactor(0).setDepth(DEPTH_HUD).setOrigin(1, 1)
+    uiAttach(scene, this.qualityText)
     // Правый нижний угол, на строке подсказок управления (мини-карта выше).
     this.qualityText.setPosition(scene.scale.width - 10, scene.scale.height - 2)
     this.refreshQualityText()
@@ -109,6 +117,9 @@ export class Hud {
       fontStyle: 'bold',
       color: '#E23A4E',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH_HUD + 1)
+    // Шаг 20: тач-кнопка — экранным слоем (в uiRoot выше мира по depth).
+    uiAttach(this.scene, circle)
+    uiAttach(this.scene, label)
 
     circle.setInteractive({ useHandCursor: true })
     circle.on(Phaser.Input.Events.POINTER_DOWN, () => {
@@ -236,6 +247,7 @@ export class Hud {
         .setScrollFactor(0)
         .setDepth(DEPTH_HUD)
         .setScale(0.9)
+      uiAttach(this.scene, icon)
       this.mutationIcons.push(icon)
     }
     this.mutationIcons.forEach((icon, i) => {

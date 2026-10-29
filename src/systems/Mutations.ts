@@ -3,6 +3,7 @@ import { MUTATIONS, type MutationDef, type Rarity } from '../config/mutations'
 import { BALANCE } from '../config/balance'
 import { hexInt } from '../config/light'
 import type { Vitals } from './Vitals'
+import { uiAttach } from './UiLayer'
 
 /**
  * Mutations — шаг 6: забеговые мутации, выпадающие из туш с шансом
@@ -283,6 +284,8 @@ export class Mutations {
     }
 
     const c = this.scene.add.container(width / 2, 64).setDepth(DEPTH_BANNER)
+    // Шаг 20: баннер мутации — экранным слоем (твин y:78 внутри uiRoot = экранные px).
+    uiAttach(this.scene, c)
     const bg = this.scene.add.rectangle(0, 0, 340, 56, 0x0b0b10, 0.86)
       .setStrokeStyle(1, rarityColor(def.rarity))
     const title = this.scene.add.text(0, -14, `МУТАЦИЯ · ${def.name.toUpperCase()}`, {

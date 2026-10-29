@@ -13,6 +13,7 @@
 import Phaser from 'phaser'
 import type { CaveData } from '../gen/cave'
 import { GEN, bandColorInt } from '../config/gen'
+import { uiAttach } from './UiLayer'
 
 const COL = {
   air: 0x1b1b26,
@@ -72,6 +73,8 @@ export class MiniMap {
       .setScrollFactor(0)
       .setDepth(30)
       .setAlpha(0.88)
+    // Шаг 20: мини-карта — экранным слоем (не зумится с камерой).
+    uiAttach(scene, this.rt)
 
     this.left = width - 8 - cave.cols * this.tileScale
     this.top = height - 8 - cave.rows * this.tileScale
@@ -85,6 +88,7 @@ export class MiniMap {
     this.dot = scene.add.rectangle(0, 0, 4, 4, COL.you, 0.95)
       .setScrollFactor(0)
       .setDepth(31)
+    uiAttach(scene, this.dot)
 
     this.buildBigMap(width, height)
 
@@ -108,6 +112,8 @@ export class MiniMap {
   /** Полная карта по центру (та же RT, увеличенная; легенда + слой). */
   private buildBigMap(width: number, height: number): void {
     const c = this.scene.add.container(width / 2, height / 2).setScrollFactor(0).setDepth(38)
+    // Шаг 20: большая карта — экранным слоем (по центру при любом зуме).
+    uiAttach(this.scene, c)
     const veil = this.scene.add.rectangle(0, 0, width, height, 0x0b0b10, 0.86)
     const mapW = this.cave.cols * GEN.map.bigMapScale
     const mapH = this.cave.rows * GEN.map.bigMapScale

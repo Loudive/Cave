@@ -36,6 +36,8 @@ import { paintCave, erodeCave, type PaintedCave } from '../systems/CavePainter'
 import { generateCave, biomeIndexAtMeters, type CaveData } from '../gen/cave'
 import { Rng, hashSeed } from '../gen/rng'
 import { MUTATIONS } from '../config/mutations'
+import { VFX } from '../config/vfx'
+import { createUiRoot, uiAttach, uiRootSyncZoom } from '../systems/UiLayer'
 
 /**
  * CaveScene — шаг 7: мобы и живая экосистема поверх боёвки шага 6.
@@ -137,6 +139,10 @@ export class CaveScene extends Phaser.Scene {
   private carryRun: RunSnapshot | null = null
   /** Шаг 12: следующая волна процедурного спавна вокруг игрока (мс). */
   private roamNextAt = 0
+  /** Шаг 20: аэро-джус — таймер следующей крупины шлейфа крыльев. */
+  private wingTrailNextAt = 0
+  /** Шаг 20: прошлое состояние существа (взмах на входе в планирование). */
+  private prevAeroState = ''
   private exiting = false
   private dying = false
   private maxMeters = 0
@@ -178,6 +184,14 @@ export class CaveScene extends Phaser.Scene {
   create(): void {
     const t0 = performance.now()
 
+    // Шаг 20: экран-слой HUD. Камера теперь живёт с базовым зумом
+    // (cameraBaseZoom = 2, «приблизь в два раза»), а зум в Phaser
+    // масштабирует вообще всё, включая scrollFactor(0)-объекты — HUD
+    // уезжал бы к краям и рос. Всё экранное кладётся в uiRoot с
+    // контр-трансформацией каждый кадр (см. systems/UiLayer.ts).
+    // Должен существовать ДО создания любых HUD-объектов ниже.
+    createUiRoot(this)
+
     // ── Генерация ───────────────────────────────────────────────────────────
     this.cave = generateCave(this.seedBase, this.depth)
     // Шаг 15: шумовая эрозия границы — ДО всех систем (физика/спавны/декор
@@ -192,6 +206,11 @@ export class CaveScene extends Phaser.Scene {
     this.physics.world.setBounds(0, 0, this.worldW, this.worldH, true, true, true, true)
     this.physics.world.gravity.y = MOVEMENT.gravity
     this.cameras.main.setBounds(0, 0, this.worldW, this.worldH)
+    // Шаг 20: «приблизь камеру в два раза — хочу ближе видеть персонажа».
+    // Базовый зум из vfx.json (ноль магических чисел). Свет/мошь/частицы
+    // мировые — масштабируются автоматически; DarknessMask умножает
+    // координаты дыр на cam.zoom (правка там же, шаг 20).
+    this.cameras.main.setZoom(VFX.cameraBaseZoom)
     this.cameras.main.fadeIn(450, 4, 4, 8)
     this.cameras.main.setBackgroundColor('#07070b')
 
@@ -275,7 +294,7 @@ export class CaveScene extends Phaser.Scene {
       repeat: -1,
       ease: 'Sine.InOut',
     })
-    this.cameras.main.startFollow(this.creature, true, 0.09, 0.09)
+    this.cameras.main.startFollow(this.creature, true, VFX.cameraFollowLerp, VFX.cameraFollowLerp)
 
     // ── Шаг 6: виталы, кровь, еда, мутации, бой ─────────────────────────────
     this.vitals = new Vitals()
@@ -375,6 +394,10 @@ export class CaveScene extends Phaser.Scene {
     this.mutations.slots = this.vitals.mutationSlots
 
     this.combat.onHeavyHit = (damage) => this.vfx.chromaticHit(damage >= 20 ? 1.5 : 1)
+    // Шаг 20: всплеск попадания укуса («ауры ударов, сплеши») — кольцо
+    // + конус биолюм-искр + циановая вспышка над маской тьмы.
+    this.combat.onBiteHit = (x, y, facing, killed) =>
+      this.vfx.hitSplash(x, y, facing, killed)
 
     this.hudBars = new Hud(this, this.vitals, this.mutations, () => this.combat.queueTouchBite())
 
@@ -400,6 +423,8 @@ export class CaveScene extends Phaser.Scene {
         count: 7, dirDeg: 90, spreadDeg: 70, speedMult: 0.4,
         texture: 'spore', sticky: false,
       })
+      // Шаг 20: взмах крыльев при воздушном прыжке — сноп биолюм-пыли вниз.
+      this.vfx.wingSweep(this.creature.x, this.creature.y + 6, 1)
     }
     // Шаг 13 (Carrion/Dead Cells): сквош приземления + пыль, стретч отрыва.
     // Шаг 16: база твинов — creature.baseScale (рост × масштаб анимации):
@@ -407,17 +432,10 @@ export class CaveScene extends Phaser.Scene {
     this.creature.onHardLand = (impactVy) => {
       const j = MOVEMENT.juice
       const k = Math.min(1, Math.max(0, (impactVy - j.landMinVy) / (j.landMaxVy - j.landMinVy)))
-      const base = this.creature.baseScale
-      this.tweens.killTweensOf(this.creature)
-      this.tweens.add({
-        targets: this.creature,
-        scaleX: base * (1 + (j.landSquashX - 1) * k),
-        scaleY: base * (1 - (1 - j.landSquashY) * k),
-        duration: j.landSquashMs,
-        yoyo: true,
-        ease: 'Quad.Out',
-        onComplete: () => this.creature.setScale(this.creature.baseScale),
-      })
+      // Шаг 20: масштабный твин живёт в существе (stopScaleTween атомарно
+      // заменяет его) — прежний killTweensOf(this.creature) убивал здесь
+      // мигание неуязвимости на полпути (альфа застревала < 1).
+      this.creature.landVisual(k)
       this.blood.burst(this.creature.x, this.creature.y + 10, {
         count: Math.round(j.landDustCount * (0.6 + k * 0.6)),
         dirDeg: 90,
@@ -428,18 +446,10 @@ export class CaveScene extends Phaser.Scene {
       })
     }
     this.creature.onTakeoff = () => {
-      const j = MOVEMENT.juice
-      const base = this.creature.baseScale
-      this.tweens.killTweensOf(this.creature)
-      this.tweens.add({
-        targets: this.creature,
-        scaleX: base * j.takeoffStretchX,
-        scaleY: base * j.takeoffStretchY,
-        duration: j.takeoffMs,
-        yoyo: true,
-        ease: 'Quad.Out',
-        onComplete: () => this.creature.setScale(this.creature.baseScale),
-      })
+      // Шаг 20: тот же перенос — стретч отрыва из существа.
+      this.creature.takeoffVisual()
+      // Взмах крыльев при отрыве от земли.
+      this.vfx.wingSweep(this.creature.x, this.creature.y + 8, 1)
     }
 
     this.mask.setPlayer(this.mask.add({
@@ -492,11 +502,14 @@ export class CaveScene extends Phaser.Scene {
 
     // ── UI ──────────────────────────────────────────────────────────────────
     const { width, height } = this.scale
-    this.add.image(width / 2, height / 2, 'vignette')
+    const vignette = this.add.image(width / 2, height / 2, 'vignette')
       .setDisplaySize(width * LIGHT.vignette.overscan, height * LIGHT.vignette.overscan)
       .setScrollFactor(0)
       .setDepth(18)
       .setAlpha(LIGHT.vignette.alpha)
+    // Шаг 20: весь экран (вигнетка/HUD/карта/оверлеи) — в uiRoot,
+    // контр-трансформация гасит зум камеры (systems/UiLayer.ts).
+    uiAttach(this, vignette)
 
     this.hudText = this.add.text(width - 10, 8, '', {
       fontFamily: 'monospace',
@@ -508,6 +521,7 @@ export class CaveScene extends Phaser.Scene {
       .setOrigin(1, 0)
       .setScrollFactor(0)
       .setDepth(22)
+    uiAttach(this, this.hudText)
 
     // Шаг 11: счётчик Эссенции этого забега (обновляется только сменой строки).
     this.essenceHud = this.add.text(width - 10, 52, '', {
@@ -520,8 +534,9 @@ export class CaveScene extends Phaser.Scene {
       .setOrigin(1, 0)
       .setScrollFactor(0)
       .setDepth(22)
+    uiAttach(this, this.essenceHud)
 
-    this.add.text(12, height - 14,
+    const controlsHint = this.add.text(12, height - 14,
       'A/D — бег · SPACE — прыжок · W — план · J/ЛКМ — укус · R — та же пещера · N — новая · M — карта · Q — качество · ESC — меню',
       { fontFamily: 'monospace', fontSize: '11px', color: '#8A8894' },
     )
@@ -529,6 +544,7 @@ export class CaveScene extends Phaser.Scene {
       .setOrigin(0, 1)
       .setDepth(22)
       .setAlpha(0.8)
+    uiAttach(this, controlsHint)
 
     this.miniMap = new MiniMap(this, this.cave)
     // Шаг 13: заголовок большой карты — слой и seed.
@@ -570,6 +586,11 @@ export class CaveScene extends Phaser.Scene {
     // Разморозка — ВНЕ страховки: даже после ошибочного кадра мир обязан ожить.
     this.hitStop.update()
     try {
+      // Шаг 20: контр-трансформация экран-слоя против зума камеры —
+      // каждый кадр (пульс слоу-мо меняет зум во времени, HUD не должен
+      // «дышать» вместе с ним). Вне страховки не нужно: это чистые
+      // присваивания, но пусть живут рядом с остальным апдейтом.
+      uiRootSyncZoom(this)
       // Отладочный godmode для скриншот-тестов (агент ставит window.__GOD__).
       if ((window as unknown as { __GOD__?: boolean }).__GOD__) {
         this.vitals.hp = this.vitals.maxHp
@@ -730,6 +751,8 @@ export class CaveScene extends Phaser.Scene {
       }
       this.mask.update(this)
       this.motes.update(this, this.creature.x, this.creature.y)
+      // Шаг 20: аэро-джус существа — шлейф крыльев + взмахи (см. ниже).
+      this.updateAero(time)
 
       // HUD: глубина + биом + seed (как в шаге 4).
       const meters = Math.max(0, Math.floor(this.cave.depthOffsetMeters + this.creature.y * GEN.map.metersPerPixel))
@@ -1109,6 +1132,8 @@ export class CaveScene extends Phaser.Scene {
     const depthPx = this.cameras.main.height
 
     const overlay = this.add.container(0, 0).setScrollFactor(0).setDepth(40).setAlpha(0)
+    // Шаг 20: оверлей итогов — экранным слоем (поверх всего мира в uiRoot).
+    uiAttach(this, overlay)
     const veil = this.add.rectangle(width / 2, height / 2, width, height, 0x0b0b10, 0.82)
     const title = this.add.text(width / 2, height / 2 - 138, 'ЗАБЕГ ОКОНЧЕН', {
       fontFamily: 'Georgia, "Times New Roman", serif',
@@ -1974,6 +1999,8 @@ export class CaveScene extends Phaser.Scene {
   private showGeneBanner(def: GeneDef, color: string): void {
     const { width } = this.scale
     const c = this.add.container(width / 2, 64).setDepth(26)
+    // Шаг 20: баннеры — экранным слоем (твин y:78 внутри uiRoot = экранные px).
+    uiAttach(this, c)
     const bg = this.add.rectangle(0, 0, 360, 56, 0x0b0b10, 0.86)
       .setStrokeStyle(1, 0xe8a34f)
     const title = this.add.text(0, -14, `ПОСТОЯННЫЙ ГЕН · ${def.name.toUpperCase()}`, {
@@ -1999,6 +2026,34 @@ export class CaveScene extends Phaser.Scene {
         onComplete: () => c.destroy(),
       })
     })
+  }
+
+    /**
+   * Шаг 20: аэро-джус существа (пожелание игрока: «тонкий иллюминесцентный
+   * шлейф от крыльев, прям пару частиц + взмахи»).
+   *
+   * (1) Вход в планирование — один мягкий взмах вниз.
+   * (2) В полёте при заметной скорости — крупица биолюм-пыли раз в
+   *     aero.wingTrail.everyMs за спиной: на экране одновременно ~5
+   *     крупинок 3px — ТОНКО, не поток (шаг 19 научил: крылья не должны
+   *     читатья «слишком яркими»).
+   * На земле и на сцепе — тишина: пыль только у ЛЕТЯЩЕГО существа.
+   */
+  private updateAero(time: number): void {
+    if (this.dying || !this.vitals.alive) return
+    const st = this.creature.getState()
+    if (st === 'glide' && this.prevAeroState !== 'glide') {
+      this.vfx.wingSweep(this.creature.x, this.creature.y + 4, 0.8)
+    }
+    this.prevAeroState = st
+    if (st === 'ground' || st === 'wall-cling') return
+    const body = this.creature.body as Phaser.Physics.Arcade.Body
+    const fast = st === 'glide'
+      || Math.abs(body.velocity.x) > 30
+      || Math.abs(body.velocity.y) > 40
+    if (!fast || time < this.wingTrailNextAt) return
+    this.wingTrailNextAt = time + VFX.aero.wingTrail.everyMs
+    this.vfx.wingTrailTick(this.creature.x - this.creature.facing * 12, this.creature.y + 2)
   }
 
   /** Спутник «Короны Матки»: побеждённый мелкий моб встаёт в свиту. */

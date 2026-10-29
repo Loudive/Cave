@@ -21,6 +21,8 @@ export const ASSETS: AssetEntry[] = [
   // (idle/run/glide/bite/eat/hurt/death) грузятся спрайтлистами в BootScene
   // с кадрами 68×46 (scripts/process-hero.mjs, сырьё design/raw/v3).
   // Текстуры 'hero-*' здесь НЕ перечислены — см. BootScene.preload.
+  // Шаг 20: текстуры 'mob-*' тоже — анимированные листы 4×68×46 там же
+  // (scripts/process-mobs.mjs; раньше были статичными 22×14 здесь).
   { key: 'rock', file: 'rock.png' },
   // Шаг 12: пять видов скал + лозы (лучший визуал пещеры).
   { key: 'rock-a', file: 'rock-a.png' },
@@ -61,15 +63,11 @@ export const ASSETS: AssetEntry[] = [
   { key: 'blood-drop', file: 'blood-drop.png' },
   { key: 'blood-decal', file: 'blood-decal.png' },
   { key: 'clot', file: 'clot.png' },
-  { key: 'mob-slug', file: 'mob-slug.png' },
-  { key: 'mob-bat', file: 'mob-bat.png' },
+  // Шаг 20: mob-slug/mob-bat/… перенесены в BootScene.preload (листы 4×68×46).
   { key: 'meat-chunk', file: 'meat-chunk.png' },
   { key: 'mutation-gem', file: 'mutation-gem.png' },
-  // Экосистема (шаг 7): четыре новых вида, споровый снаряд, лужа огня, кольцо шума.
-  { key: 'mob-reaper', file: 'mob-reaper.png' },
-  { key: 'mob-bloodsucker', file: 'mob-bloodsucker.png' },
-  { key: 'mob-shell', file: 'mob-shell.png' },
-  { key: 'mob-lava', file: 'mob-lava.png' },
+  // Экосистема (шаг 7): споровый снаряд, лужа огня, кольцо шума.
+  // (мобы slug/bat/reaper/bloodsucker/shell/lava — листы в BootScene, шаг 20)
   { key: 'spore-bolt', file: 'spore-bolt.png' },
   { key: 'fire-patch', file: 'fire-patch.png' },
   { key: 'ring', file: 'ring.png' },

@@ -39,11 +39,37 @@ export class Vfx {
   private glows = new Set<GlowEntry>()
   private flashPool: Phaser.GameObjects.Image[] = []
 
+  // ── Шаг 20: аэро-джус (шлейф крыльев / взмахи / всплески ударов) ──────
+  // Всё живёт НАД маской тьмы в lumen-полосе: свечение = биология
+  // существа (GDD §7), читается в полной темноте как lumen-метки героя.
+  private aeroEmitter: Phaser.GameObjects.Particles.ParticleEmitter
+  private aeroRings: Phaser.GameObjects.Image[] = []
+  private aeroGlows: Phaser.GameObjects.Image[] = []
+
   constructor(
     private scene: Phaser.Scene,
     private blood: BloodFx,
     private hitStop: HitStop,
-  ) {}
+  ) {
+    // Шаг 20: один эмиттер на все аэро-эффекты (spark.png, ADD-tint): конфиг
+    // меняется на каждый вызов как в BloodFx.burst — пул, ноль аллокаций.
+    this.aeroEmitter = scene.add.particles(0, 0, 'spark', { emitting: false })
+      .setDepth(LIGHT.halo.lumenDepth + 0.2)
+    this.hitStop.track(this.aeroEmitter)
+    for (let i = 0; i < 3; i++) {
+      this.aeroRings.push(scene.add.image(0, 0, 'ring')
+        .setDepth(LIGHT.halo.lumenDepth + 0.1)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setTint(VFX.aero.hitSplash.tint)
+        .setVisible(false))
+    }
+    for (let i = 0; i < 2; i++) {
+      this.aeroGlows.push(scene.add.image(0, 0, 'glow-cyan')
+        .setDepth(LIGHT.halo.lumenDepth + 0.3)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setVisible(false))
+    }
+  }
 
   /** WebGL + высокое качество — пост-эффекты включены. */
   private get fxAllowed(): boolean {
@@ -126,9 +152,12 @@ export class Vfx {
   uniqueKillSlowMo(): void {
     this.hitStop.slowMo(VFX.slowMoMs)
     const cam = this.scene.cameras.main
-    cam.zoomTo(VFX.slowMoZoom, VFX.slowMoZoomInMs, Phaser.Math.Easing.Sine.Out)
+    // Шаг 20: зум — МНОЖИТЕЛЬ базового (vfx.json cameraBaseZoom = 2):
+    // раньше возврат был к абсолютной 1 — при базовом зуме 2 слоу-мо
+    // «отдаляло» бы камеру вдвое от обычного вида.
+    cam.zoomTo(VFX.cameraBaseZoom * VFX.slowMoZoom, VFX.slowMoZoomInMs, Phaser.Math.Easing.Sine.Out)
     this.scene.time.delayedCall(VFX.slowMoMs + 20, () =>
-      cam.zoomTo(1, VFX.slowMoZoomOutMs, Phaser.Math.Easing.Sine.In))
+      cam.zoomTo(VFX.cameraBaseZoom, VFX.slowMoZoomOutMs, Phaser.Math.Easing.Sine.In))
     this.chromaticHit(1.4)
   }
 
@@ -142,6 +171,100 @@ export class Vfx {
       texture: 'spark', sticky: false,
     })
     if (golden) this.eatFlash(x, y, 0.8)
+  }
+
+  // ── Шаг 20: аэро-джус ───────────────────────────────────────────────
+
+  /** Тонкий иллюминесцентный шлейф от крыльев: ОДНА крупица за тик.
+   *  Вызывает сцена из update по таймеру (aero.wingTrail.everyMs),
+   *  только в полёте при заметной скорости — «прям пару частиц». */
+  wingTrailTick(x: number, y: number): void {
+    const t = VFX.aero.wingTrail
+    this.aeroEmitter.setConfig({
+      speed: { min: t.speedMin, max: t.speedMax },
+      angle: { min: t.dirDeg - t.spreadDeg / 2, max: t.dirDeg + t.spreadDeg / 2 },
+      gravityY: 0,
+      lifespan: { min: t.lifeMin, max: t.lifeMax },
+      scale: { start: t.scaleStart, end: t.scaleEnd },
+      alpha: { start: t.alphaStart, end: t.alphaEnd },
+      tint: t.tint,
+      emitting: false,
+    })
+    this.aeroEmitter.emitParticleAt(x, y, 1)
+  }
+
+  /** Взмах крыльев: короткий сноп биолюм-пыли вниз (прыжок/двойной/
+   *  вход в план). power<1 — мягче (вход в планирование). */
+  wingSweep(x: number, y: number, power = 1): void {
+    const s = VFX.aero.wingSweep
+    const count = Math.max(2, Math.round(s.count * power * QUALITY.particleMult))
+    this.aeroEmitter.setConfig({
+      speed: { min: s.speedMin, max: s.speedMax },
+      angle: { min: s.dirDeg - s.spreadDeg / 2, max: s.dirDeg + s.spreadDeg / 2 },
+      gravityY: 0,
+      lifespan: { min: s.lifeMin, max: s.lifeMax },
+      scale: { start: s.scaleStart, end: s.scaleEnd },
+      alpha: { start: s.alphaStart, end: s.alphaEnd },
+      tint: s.tint,
+      emitting: false,
+    })
+    this.aeroEmitter.emitParticleAt(x, y, count)
+  }
+
+  /** Всплеск попадания укуса («аура удара/сплеш»): расширяющееся кольцо
+   *  + конус искр от пасти в жертву + мгновенная циановая вспышка.
+   *  Всё НАД маской тьмы — попадание читается в полной темноте. */
+  hitSplash(x: number, y: number, dirX: number, killed = false): void {
+    const h = VFX.aero.hitSplash
+    // Кольцо из пула (3 — перекрытие малое: всплески реже чавканья).
+    let ring = this.aeroRings.find((r) => !r.visible)
+    if (!ring) ring = this.aeroRings[0]
+    this.scene.tweens.killTweensOf(ring)
+    ring.setPosition(x, y)
+      .setScale(h.ringScaleFrom)
+      .setAlpha(h.ringAlpha * (killed ? 1.25 : 1))
+      .setVisible(true)
+    this.scene.tweens.add({
+      targets: ring,
+      scale: h.ringScaleTo * (killed ? 1.2 : 1),
+      alpha: 0,
+      duration: h.ringMs,
+      ease: 'Cubic.Out',
+      onComplete: () => ring!.setVisible(false),
+    })
+    // Конус искр по направлению укуса (в сторону жертвы), с гравитацией.
+    const dir = dirX >= 0 ? -25 : 205
+    const count = Math.max(
+      2,
+      Math.round(h.sparkCount * (killed ? 1.5 : 1) * QUALITY.particleMult),
+    )
+    this.aeroEmitter.setConfig({
+      speed: { min: h.sparkSpeedMin, max: h.sparkSpeedMax },
+      angle: { min: dir - h.sparkSpreadDeg / 2, max: dir + h.sparkSpreadDeg / 2 },
+      gravityY: h.sparkGravityY,
+      lifespan: { min: h.sparkLifeMin, max: h.sparkLifeMax },
+      scale: { start: h.sparkScaleStart, end: h.sparkScaleEnd },
+      alpha: { start: h.sparkAlphaStart, end: 0 },
+      tint: h.tint,
+      emitting: false,
+    })
+    this.aeroEmitter.emitParticleAt(x, y, count)
+    // Мгновенная циановая вспышка (glow-cyan, пул из 2).
+    let glow = this.aeroGlows.find((g) => !g.visible)
+    if (!glow) glow = this.aeroGlows[0]
+    this.scene.tweens.killTweensOf(glow)
+    glow.setPosition(x, y)
+      .setScale(h.flashScale)
+      .setAlpha(h.flashAlpha)
+      .setVisible(true)
+    this.scene.tweens.add({
+      targets: glow,
+      alpha: 0,
+      scale: h.flashScale * 2.2,
+      duration: h.flashMs,
+      ease: 'Quad.Out',
+      onComplete: () => glow!.setVisible(false),
+    })
   }
 
   // ── Glow-ореолы (шаг 10: bloom-спрайты вместо postFX) ──────────────────────

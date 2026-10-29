@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { ASSETS, assetUrl, HERO_FRAME } from '../config/assets'
 import { ANIMS } from '../config/anims'
+import { ENEMIES } from '../config/enemies'
 import { installGeneratedAudio } from '../systems/Audio'
 
 /**
@@ -45,6 +46,17 @@ export class BootScene extends Phaser.Scene {
       })
     }
 
+    // Шаг 20: мобы — анимированные листы (4 кадра 68×46, нарезка
+    // scripts/process-mobs.mjs, нейро-генерация scripts/gen-mobs.mjs).
+    // ТЕКСТУРЫ 'mob-*' НЕ в ASSETS-манифесте — они грузятся ЗДЕСЬ
+    // спрайтлистами (та же сетка кадров, что hero-*).
+    for (const id of ['slug', 'bat', 'reaper', 'bloodsucker', 'shell', 'lava'] as const) {
+      this.load.spritesheet(`mob-${id}`, assetUrl(`mob-${id}.png`), {
+        frameWidth: HERO_FRAME.w,
+        frameHeight: HERO_FRAME.h,
+      })
+    }
+
     // Шаг 10: SFX + музыка синтезированы в браузере — ставим в кэш напрямую
     // (декодирование в фоне, без участия загрузчика).
     installGeneratedAudio(this)
@@ -74,6 +86,19 @@ export class BootScene extends Phaser.Scene {
         frames,
         frameRate: c.fps,
         repeat: c.loop ? -1 : 0,
+      })
+    }
+
+    // Шаг 20: walk-анимации мобов (4 кадра, fps из enemies.json species.anim).
+    for (const id of ['slug', 'bat', 'reaper', 'bloodsucker', 'shell', 'lava'] as const) {
+      const key = `mob-${id}-walk`
+      if (this.anims.exists(key)) continue
+      const a = ENEMIES.species[id].anim
+      this.anims.create({
+        key,
+        frames: this.anims.generateFrameNumbers(`mob-${id}`, { start: 0, end: 3 }),
+        frameRate: a ? a.fps : 8,
+        repeat: -1,
       })
     }
 

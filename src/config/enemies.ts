@@ -169,6 +169,16 @@ export interface SpeciesConfig {
   fly?: FlyConfig | null
   trail?: TrailConfig | null
   _flavor?: string
+  /** Шаг 20: анимация вида — 4 кадра 68×46 (walk-цикл), scripts/process-mobs.mjs. */
+  anim?: MobAnimConfig
+}
+
+/** Шаг 20: параметры анимации вида (enemies.json species.<id>.anim). */
+export interface MobAnimConfig {
+  /** Кадров/сек walk-цикла. */
+  fps: number
+  /** Индекс кадра позы туши (Eating carcass). */
+  deadFrame: number
 }
 
 export interface EcoRingConfig {

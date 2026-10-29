@@ -25,6 +25,67 @@ export interface VfxConfig {
   slowMoZoomOutMs: number
   bloomScale: number
   bloomAlpha: number
+  cameraBaseZoom: number
+  cameraFollowLerp: number
+  aero: VfxAero
+}
+
+/** Шаг 20: аэро-джус — шлейф крыльев / взмахи / всплески ударов. */
+export interface VfxAeroWingTrail {
+  everyMs: number
+  speedMin: number
+  speedMax: number
+  dirDeg: number
+  spreadDeg: number
+  lifeMin: number
+  lifeMax: number
+  scaleStart: number
+  scaleEnd: number
+  alphaStart: number
+  alphaEnd: number
+  tint: number
+}
+
+export interface VfxAeroWingSweep {
+  count: number
+  speedMin: number
+  speedMax: number
+  dirDeg: number
+  spreadDeg: number
+  lifeMin: number
+  lifeMax: number
+  scaleStart: number
+  scaleEnd: number
+  alphaStart: number
+  alphaEnd: number
+  tint: number
+}
+
+export interface VfxAeroHitSplash {
+  ringScaleFrom: number
+  ringScaleTo: number
+  ringAlpha: number
+  ringMs: number
+  sparkCount: number
+  sparkSpeedMin: number
+  sparkSpeedMax: number
+  sparkSpreadDeg: number
+  sparkLifeMin: number
+  sparkLifeMax: number
+  sparkGravityY: number
+  sparkScaleStart: number
+  sparkScaleEnd: number
+  sparkAlphaStart: number
+  flashScale: number
+  flashAlpha: number
+  flashMs: number
+  tint: number
+}
+
+export interface VfxAero {
+  wingTrail: VfxAeroWingTrail
+  wingSweep: VfxAeroWingSweep
+  hitSplash: VfxAeroHitSplash
 }
 
 const VFX_NUMBER_KEYS: readonly NumberKeys<VfxConfig>[] = [
@@ -39,9 +100,28 @@ const VFX_NUMBER_KEYS: readonly NumberKeys<VfxConfig>[] = [
   'slowMoZoomOutMs',
   'bloomScale',
   'bloomAlpha',
+  'cameraBaseZoom',
+  'cameraFollowLerp',
 ]
 
 const unwrapped = unwrapDoc<VfxConfig>(data as { _doc?: string }, 'vfx.json')
 assertNumbers(unwrapped, 'vfx.json', VFX_NUMBER_KEYS)
+// Шаг 20: вложенная секция aero — валидируем каждую группу отдельно
+// (NumberKeys ходит только по верхнему уровню).
+assertNumbers(unwrapped.aero.wingTrail, 'vfx.json aero.wingTrail', [
+  'everyMs', 'speedMin', 'speedMax', 'dirDeg', 'spreadDeg',
+  'lifeMin', 'lifeMax', 'scaleStart', 'scaleEnd', 'alphaStart', 'alphaEnd', 'tint',
+] as const)
+assertNumbers(unwrapped.aero.wingSweep, 'vfx.json aero.wingSweep', [
+  'count', 'speedMin', 'speedMax', 'dirDeg', 'spreadDeg',
+  'lifeMin', 'lifeMax', 'scaleStart', 'scaleEnd', 'alphaStart', 'alphaEnd', 'tint',
+] as const)
+assertNumbers(unwrapped.aero.hitSplash, 'vfx.json aero.hitSplash', [
+  'ringScaleFrom', 'ringScaleTo', 'ringAlpha', 'ringMs',
+  'sparkCount', 'sparkSpeedMin', 'sparkSpeedMax', 'sparkSpreadDeg',
+  'sparkLifeMin', 'sparkLifeMax', 'sparkGravityY',
+  'sparkScaleStart', 'sparkScaleEnd', 'sparkAlphaStart',
+  'flashScale', 'flashAlpha', 'flashMs', 'tint',
+] as const)
 
 export const VFX = unwrapped

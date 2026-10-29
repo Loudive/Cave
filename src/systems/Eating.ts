@@ -59,6 +59,9 @@ export class Eating {
     const sp = ENEMIES.species[speciesId]
     const sprite = this.scene.add.image(x, y, sp.texture)
       .setDepth(DEPTH_CARCASS)
+      // Шаг 20: листы анимаций — туша показывает позу deadFrame (лежачая),
+      // а не нулевой кадр (стоячая) как раньше при статичной текстуре.
+      .setFrame(sp.anim ? sp.anim.deadFrame : 0)
       .setTint(0xb06a72)
       .setScale(1.15, 0.6)
       .setAlpha(0.95)
